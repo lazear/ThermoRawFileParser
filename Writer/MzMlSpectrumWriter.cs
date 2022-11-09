@@ -317,7 +317,6 @@ namespace ThermoRawFileParser.Writer
                 _writer.WriteStartElement("spectrumList");
                 _writer.WriteAttributeString("count", GetTotalScanNumber());
                 _writer.WriteAttributeString("defaultDataProcessingRef", "ThermoRawFileParserProcessing");
-
                 serializer = _factory.CreateSerializer(typeof(SpectrumType));
 
                 // MS Spectra
