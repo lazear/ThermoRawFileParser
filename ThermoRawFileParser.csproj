@@ -121,8 +121,8 @@
       <HintPath>packages\OpenMcdf.Extensions.2.2.1.4\lib\net40\OpenMcdf.Extensions.dll</HintPath>
       <Private>True</Private>
     </Reference>
-    <Reference Include="Parquet, Version=2.0.0.0, Culture=neutral, PublicKeyToken=de28deb604dd91c9, processorArchitecture=MSIL">
-      <HintPath>packages\Parquet.Net.2.0.0\lib\net451\Parquet.dll</HintPath>
+    <Reference Include="Parquet, Version=3.0.0.0, Culture=neutral, PublicKeyToken=d380b3dee6d01926, processorArchitecture=MSIL">
+      <HintPath>packages\Parquet.Net.3.10.0\lib\netstandard2.0\Parquet.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Buffers, Version=4.0.3.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51">
@@ -162,6 +162,9 @@
     <Reference Include="System.Text.Encoding.CodePages, Version=5.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
       <HintPath>packages\System.Text.Encoding.CodePages.5.0.0\lib\net461\System.Text.Encoding.CodePages.dll</HintPath>
       <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Threading.Tasks.Extensions, Version=4.1.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>packages\System.Threading.Tasks.Extensions.4.3.0\lib\portable-net45+win8+wp8+wpa81\System.Threading.Tasks.Extensions.dll</HintPath>
     </Reference>
     <Reference Include="System.ValueTuple, Version=4.0.3.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51">
       <HintPath>packages\System.ValueTuple.4.5.0\lib\net47\System.ValueTuple.dll</HintPath>

@@ -1,9 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
-using System.Threading.Tasks;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using log4net;
 using Parquet;
@@ -12,8 +9,7 @@ using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
-using ThermoRawFileParser.Writer.MzML;
-using System.Diagnostics;
+using Parquet.Data.Rows;
 
 namespace ThermoRawFileParser.Writer
 {
@@ -144,7 +140,7 @@ namespace ThermoRawFileParser.Writer
         {
             var output = outputDirectory + "//" + Path.GetFileNameWithoutExtension(sourceRawFileName);
 
-            var ds = new DataSet(
+            var table = new Table(new Schema(
                 new DataField<string>("file"),
                 new DataField<int>("scan"),
                 new DataField<int>("level"),
@@ -155,11 +151,11 @@ namespace ThermoRawFileParser.Writer
                 new DataField<float>("intensity"),
                 new DataField<int?>("charge"),
                 new DataField<float?>("noise")
-             );
+            ));
 
             foreach ( var s in scans )
             {
-                ds.Add(
+                table.Add(
                     sourceRawFileName,
                     s.scan,
                     s.level,
@@ -170,15 +166,15 @@ namespace ThermoRawFileParser.Writer
                     s.intensity,
                     s.charge,
                     s.noise
-                    );
+                );
             }
 
 
             using (Stream fileStream = File.Open(output + ".parquet", FileMode.Create))
             {
-                using (var writer = new ParquetWriter(fileStream))
+                using (var writer = new ParquetWriter(table.Schema, fileStream))
                 {
-                    writer.Write(ds, CompressionMethod.Gzip);
+                    writer.Write(table);
                 }
             }
         }
