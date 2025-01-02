@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>enable</Nullable>
+    <Nullable>annotations</Nullable>
     <StartupObject>ThermoRawFileParser.MainClass</StartupObject>
     <PlatformTarget>x64</PlatformTarget>
     <Platforms>x64</Platforms>

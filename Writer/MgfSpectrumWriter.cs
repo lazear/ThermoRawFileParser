@@ -203,11 +203,10 @@ namespace ThermoRawFileParser.Writer
                             Writer.WriteLine($"CHARGE={charge}{polarity}");
                         }
 
-                        // Write the filter string
-                        //Writer.WriteLine($"SCANEVENT={scanEvent.ToString()}");
-
                         double[] masses;
                         double[] intensities;
+                        double[] charges = null;
+                        double[] raw_masses; //copy of original mass array used for sorting
 
                         if (!ParseInput.NoPeakPicking.Contains(msLevel))
                         {
@@ -215,7 +214,11 @@ namespace ThermoRawFileParser.Writer
                             if (scan.HasCentroidStream)
                             {
                                 masses = scan.CentroidScan.Masses;
+                                raw_masses = (double[])masses.Clone();
                                 intensities = scan.CentroidScan.Intensities;
+
+                                if (ParseInput.ChargeData)
+                                    charges = scan.CentroidScan.Charges;
                             }
                             else // Otherwise take segmented (low res) scan data
                             {
@@ -225,22 +228,38 @@ namespace ThermoRawFileParser.Writer
                                     : scan.SegmentedScan;
 
                                 masses = segmentedScan.Positions;
+                                raw_masses = (double[])masses.Clone();
                                 intensities = segmentedScan.Intensities;
                             }
                         }
                         else // Use the segmented data as is
                         {
                             masses = scan.SegmentedScan.Positions;
+                            raw_masses = (double[])masses.Clone();
                             intensities = scan.SegmentedScan.Intensities;
                         }
 
                         if (!(masses is null) && masses.Length > 0)
                         {
-                            Array.Sort(masses, intensities);
+                            //Sorting masses and intensities
+                            Array.Sort(masses);
+                            Array.Sort((double[])raw_masses.Clone(), intensities);
 
-                            for (var i = 0; i < masses.Length; i++)
+                            if (!(charges is null) && charges.Length > 0)
                             {
-                                Writer.WriteLine(String.Format("{0:f5} {1:f3}", masses[i], intensities[i]));
+                                //Sorting charges
+                                Array.Sort((double[])raw_masses.Clone(), charges);
+                                for (var i = 0; i < masses.Length; i++)
+                                {
+                                    Writer.WriteLine(String.Format("{0:f5} {1:f3} {2:d}", masses[i], intensities[i], (int)charges[i]));
+                                }
+                            }
+                            else
+                            {
+                                for (var i = 0; i < masses.Length; i++)
+                                {
+                                    Writer.WriteLine(String.Format("{0:f5} {1:f3}", masses[i], intensities[i]));
+                                }
                             }
                         }
 

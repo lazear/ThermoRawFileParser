@@ -1477,6 +1477,8 @@ namespace ThermoRawFileParser.Writer
             double? highestObservedMz = null;
             double[] masses;
             double[] intensities;
+            double[] charges = null;
+            double[] raw_masses; //this array is a copy of masses used for sorting
 
             if (!ParseInput.NoPeakPicking.Contains((int) scanFilter.MSOrder))
             {
@@ -1496,10 +1498,18 @@ namespace ThermoRawFileParser.Writer
                     basePeakIntensity = scan.CentroidScan.BasePeakIntensity;
 
                     masses = scan.CentroidScan.Masses;
+                    raw_masses = (double[])masses.Clone();//Copy of original (unsorted) masses
                     intensities = scan.CentroidScan.Intensities;
+
+                    if (ParseInput.ChargeData)
+                    {
+                        charges = scan.CentroidScan.Charges;
+                    }
 
                     if (scan.CentroidScan.Length > 0)
                     {
+                        //Sort masses
+                        Array.Sort(masses);
                         lowestObservedMz = scan.CentroidScan.Masses[0];
                         highestObservedMz = scan.CentroidScan.Masses[scan.CentroidScan.Masses.Length - 1];
                     }
@@ -1515,10 +1525,13 @@ namespace ThermoRawFileParser.Writer
                         : scan.SegmentedScan;
 
                     masses = segmentedScan.Positions;
+                    raw_masses = (double[]) masses.Clone();
                     intensities = segmentedScan.Intensities;
 
                     if (segmentedScan.PositionCount > 0)
                     {
+                        //Sort masses
+                        Array.Sort(masses);
                         lowestObservedMz = segmentedScan.Positions[0];
                         highestObservedMz = segmentedScan.Positions[segmentedScan.PositionCount - 1];
                     }
@@ -1551,10 +1564,13 @@ namespace ThermoRawFileParser.Writer
                 basePeakMass = scan.ScanStatistics.BasePeakMass;
                 basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
                 masses = scan.SegmentedScan.Positions;
+                raw_masses = (double[])masses.Clone();
                 intensities = scan.SegmentedScan.Intensities;
 
                 if (scan.SegmentedScan.Positions.Length > 0)
                 {
+                    //Sort masses
+                    Array.Sort(masses);
                     lowestObservedMz = scan.SegmentedScan.Positions[0];
                     highestObservedMz = scan.SegmentedScan.Positions[scan.SegmentedScan.Positions.Length - 1];
                 }
@@ -1629,9 +1645,6 @@ namespace ThermoRawFileParser.Writer
             // M/Z Data
             if (masses != null)
             {
-                //sorting
-                Array.Sort(masses, intensities);
-
                 // Set the spectrum default array length
                 spectrum.defaultArrayLength = masses.Length;
 
@@ -1687,8 +1700,11 @@ namespace ThermoRawFileParser.Writer
             }
 
             // Intensity Data
-            if (intensities != null)
+            if (masses != null && intensities != null)
             {
+                //sorting intensities based on masses
+                Array.Sort((double[])raw_masses.Clone(), intensities);
+
                 // Set the spectrum default array length if necessary
                 if (spectrum.defaultArrayLength == 0)
                 {
@@ -1745,6 +1761,63 @@ namespace ThermoRawFileParser.Writer
                 intensitiesBinaryData.cvParam = intensitiesBinaryDataCvParams.ToArray();
 
                 binaryData.Add(intensitiesBinaryData);
+            }
+
+            // Optional Charge Data
+            if (masses != null && charges != null)
+            {
+                //sorting charges based on masses
+                Array.Sort((double[])raw_masses.Clone(), charges);
+
+                var chargesBinaryData =
+                    new BinaryDataArrayType
+                    {
+                        binary = ParseInput.NoZlibCompression
+                            ? Get64BitArray(charges)
+                            : GetZLib64BitArray(charges)
+                    };
+                chargesBinaryData.encodedLength =
+                    (4 * Math.Ceiling((double)chargesBinaryData
+                        .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+
+                var chargesBinaryDataCvParams = new List<CVParamType>
+                {
+                    new CVParamType
+                    {
+                        accession = "MS:1000516",
+                        name = "charge array",
+                        cvRef = "MS",
+                        value = ""
+                    },
+                    new CVParamType {accession = "MS:1000523", name = "64-bit float", cvRef = "MS", value = ""}
+                };
+
+                if (!ParseInput.NoZlibCompression)
+                {
+                    chargesBinaryDataCvParams.Add(
+                        new CVParamType
+                        {
+                            accession = "MS:1000574",
+                            name = "zlib compression",
+                            cvRef = "MS",
+                            value = ""
+                        });
+                }
+                else
+                {
+                    chargesBinaryDataCvParams.Add(
+                        new CVParamType
+                        {
+                            accession = "MS:1000576",
+                            name = "no compression",
+                            cvRef = "MS",
+                            value = ""
+                        });
+                }
+
+                chargesBinaryData.cvParam = chargesBinaryDataCvParams.ToArray();
+
+                binaryData.Add(chargesBinaryData);
             }
 
             // Include optional noise data

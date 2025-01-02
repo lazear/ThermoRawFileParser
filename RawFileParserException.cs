@@ -9,10 +9,6 @@ namespace ThermoRawFileParser
         {
         }
 
-        protected RawFileParserException(SerializationInfo info, StreamingContext context) : base(info, context)
-        {
-        }
-
         public RawFileParserException(string message) : base(message)
         {
         }

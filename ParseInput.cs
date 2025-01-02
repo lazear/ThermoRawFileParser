@@ -102,6 +102,8 @@ namespace ThermoRawFileParser
 
         public bool NoiseData { get; set; }
 
+        public bool ChargeData { get; set; }
+
         public bool StdOut { get; set; }
 
         public bool Vigilant { get; set; }
@@ -135,6 +137,7 @@ namespace ThermoRawFileParser
             MgfPrecursor = false;
             StdOut = false;
             NoiseData = false;
+            ChargeData = false;
             Vigilant = false;
             _errors = 0;
             _warnings = 0;

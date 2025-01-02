@@ -499,7 +499,7 @@ namespace ThermoRawFileParser
                     h => help = h != null
                 },
                 {
-                    "version", "Prints out the version of the executable.",
+                    "v|version", "Prints out the version of the executable.",
                     v => version = v != null
                 },
                 {
@@ -584,6 +584,10 @@ namespace ThermoRawFileParser
                 {
                     "N|noiseData", "Include noise data in mzML output",
                     v => parseInput.NoiseData = v != null
+                },
+                {
+                    "C|chargeData", "Include instrument detected charge states in mzML output (only for high resolution centroided data)",
+                    v => parseInput.ChargeData = v != null
                 },
                 {
                   "w|warningsAreErrors", "Return non-zero exit code for warnings; default only for errors",
