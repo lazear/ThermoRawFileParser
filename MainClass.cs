@@ -768,6 +768,9 @@ namespace ThermoRawFileParser
                     if (parseInput.OutputFormat == OutputFormat.IndexMzML) parseInput.OutputFormat = OutputFormat.MzML;
                 }
 
+                // Switch off gzip compression for Parquet
+                if (parseInput.OutputFormat == OutputFormat.Parquet) parseInput.Gzip = false;
+
                 parseInput.MaxLevel = parseInput.MsLevel.Max();
 
                 if (parseInput.S3Url != null && parseInput.S3AccessKeyId != null &&

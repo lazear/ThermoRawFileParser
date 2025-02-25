@@ -281,5 +281,30 @@ namespace ThermoRawFileParserTest
 
             Assert.That(testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength, Is.EqualTo(95));
         }
+
+        [Test]
+        public void TestParquet()
+        {
+            // Get temp path for writing the test mzML
+            var tempFilePath = Path.GetTempPath();
+
+            var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small.RAW");
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.Parquet);
+
+            RawFileParser.Parse(parseInput);
+
+            // Actual test
+            //var xmlSerializer = new XmlSerializer(typeof(mzMLType));
+            //var testMzMl = (mzMLType)xmlSerializer.Deserialize(new FileStream(
+            //    Path.Combine(tempFilePath, "small.mzML"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+
+            //Assert.That(testMzMl.run.spectrumList.count, Is.EqualTo("48"));
+            //Assert.That(testMzMl.run.spectrumList.spectrum.Length, Is.EqualTo(48));
+
+            //Assert.That(testMzMl.run.chromatogramList.count, Is.EqualTo("1"));
+            //Assert.That(testMzMl.run.chromatogramList.chromatogram.Length, Is.EqualTo(1));
+
+            //Assert.That(testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength, Is.EqualTo(48));
+        }
     }
 }

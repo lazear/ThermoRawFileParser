@@ -68,42 +68,27 @@ namespace ThermoRawFileParser.Writer
                 return;
             }
 
-            if (ParseInput.OutputFile == null)
+            var fileName = NormalizeFileName(ParseInput.OutputFile, extension, ParseInput.Gzip);
+            if (ParseInput.OutputFormat == OutputFormat.Parquet)
             {
-                var fullExtension = ParseInput.Gzip ? extension + ".gz" : extension;
-                if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
-                {
-                    Writer = File.CreateText(ParseInput.OutputDirectory + "//" +
-                                             ParseInput.RawFileNameWithoutExtension +
-                                             extension);
-                }
-                else
-                {
-                    var fileStream = File.Create(ParseInput.OutputDirectory + "//" +
-                                                 ParseInput.RawFileNameWithoutExtension + fullExtension);
-                    var compress = new GZipStream(fileStream, CompressionMode.Compress);
-                    Writer = new StreamWriter(compress);
-                }
+                Writer = new StreamWriter(File.Create(fileName));
+            }
+            else if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
+            {
+                Writer = File.CreateText(fileName);
             }
             else
             {
-                var fileName = NormalizeFileName(ParseInput.OutputFile, extension, ParseInput.Gzip);
-                if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
-                {
-                    Writer = File.CreateText(fileName);
-                }
-                else
-                {
-                    var fileStream = File.Create(fileName);
-                    var compress = new GZipStream(fileStream, CompressionMode.Compress);
-                    Writer = new StreamWriter(compress);
-                }
+                var fileStream = File.Create(fileName);
+                var compress = new GZipStream(fileStream, CompressionMode.Compress);
+                Writer = new StreamWriter(compress);
             }
+            
         }
 
         private string NormalizeFileName(string outputFile, string extension, bool gzip)
         {
-            string result = outputFile;
+            string result = outputFile == null ? Path.Combine(ParseInput.OutputDirectory, ParseInput.RawFileNameWithoutExtension) : outputFile;
             string tail = "";
 
             string[] extensions;

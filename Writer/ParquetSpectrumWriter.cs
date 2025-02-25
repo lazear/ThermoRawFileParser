@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Reflection;
 using log4net;
 using Parquet.Serialization;
@@ -43,17 +42,18 @@ namespace ThermoRawFileParser.Writer
                 throw new RawFileParserException("No MS data in RAW file, no output will be produced");
             }
 
+            //TODO: Correct iterator based on MS-level filter
             var enumerator = raw.GetFilteredScanEnumerator(" ");
 
-            // NB: replace with more robust strategy?
-            var output = ParseInput.OutputDirectory + "//" + Path.GetFileNameWithoutExtension(ParseInput.RawFilePath) + ".mzparquet";
-
+            ConfigureWriter(".mzparquet");
+            
             ParquetSerializerOptions opts = new ParquetSerializerOptions();
             opts.CompressionLevel = System.IO.Compression.CompressionLevel.Fastest;
             opts.CompressionMethod = Parquet.CompressionMethod.Zstd;
 
             var data = new List<MzParquet>();
 
+            //TODO Precursor tree
             // map last (msOrder - 1) -> scan number (e.g. mapping precursors)
             // note, this assumes time dependence of MS1 -> MS2 -> MSN
             var last_scans = new Dictionary<int, uint>();
@@ -63,6 +63,7 @@ namespace ThermoRawFileParser.Writer
             {
                 var scanFilter = raw.GetFilterForScanNumber(scanNumber);
 
+                //TODO Centroiding if centroidStream is not available
                 CentroidStream centroidStream = new CentroidStream();
 
                 // Pull out m/z and intensity values
@@ -170,7 +171,7 @@ namespace ThermoRawFileParser.Writer
                 //   present in the same row group (critical property of mzparquet)
                 if (data.Count >= 1_048_576)
                 {
-                    var task = ParquetSerializer.SerializeAsync(data, output, opts);
+                    var task = ParquetSerializer.SerializeAsync(data, Writer.BaseStream, opts);
                     task.Wait();
                     opts.Append = true;
                     data.Clear();
@@ -182,7 +183,7 @@ namespace ThermoRawFileParser.Writer
             // serialize any remaining ions into the final row group
             if (data.Count > 0)
             {
-                var task = ParquetSerializer.SerializeAsync(data, output, opts);
+                var task = ParquetSerializer.SerializeAsync(data, Writer.BaseStream, opts);
                 task.Wait();
                 Log.Info("writing row group");
             }
