@@ -22,7 +22,7 @@ namespace ThermoRawFileParser
         private static readonly ILog Log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public const string Version = "1.4.5";
+        public static string Version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
         public static void Main(string[] args)
         {
             // Set Invariant culture as default for all further processing

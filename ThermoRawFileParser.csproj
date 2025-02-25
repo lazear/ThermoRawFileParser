@@ -8,6 +8,22 @@
     <StartupObject>ThermoRawFileParser.MainClass</StartupObject>
     <PlatformTarget>x64</PlatformTarget>
     <Platforms>x64</Platforms>
+    <Version>1.5.0</Version>
+    <Title>$(AssemblyName)</Title>
+    <Company>Compomics</Company>
+    <Copyright>2017 - 2025</Copyright>
+    <PackageProjectUrl>https://compomics.github.io/projects/ThermoRawFileParser</PackageProjectUrl>
+    <Description>Parser allowing reading Thermo RAW files and converting to common open formats on all platforms supporting .NET Core</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/compomics/ThermoRawFileParser</RepositoryUrl>
+    <Authors>Compomics</Authors>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
   </PropertyGroup>
 
   <ItemGroup>
@@ -27,6 +43,17 @@
     <PackageReference Include="Parquet.Net" Version="5.0.1" />
     <PackageReference Include="ThermoFisher.CommonCore.RawFileReader" Version="8.0.6" />
     <PackageReference Include="zlib.net-mutliplatform" Version="1.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="LICENSE">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Update="README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
   </ItemGroup>
 
 </Project>
