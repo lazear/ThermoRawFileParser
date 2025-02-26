@@ -81,27 +81,8 @@ namespace ThermoRawFileParser.Writer
                 // Get scan ms level
                 var msLevel = (int)scanFilter.MSOrder;
 
-                //TODO Centroiding if centroidStream is not available
-                CentroidStream centroidStream = new CentroidStream();
-
-                // Pull out m/z and intensity values
-                // NB: is this the best way to do this?
-                if (scanFilter.MassAnalyzer == MassAnalyzerType.MassAnalyzerFTMS)
-                {
-                    centroidStream = raw.GetCentroidStream(scanNumber, false);
-                }
-                else if (scanFilter.MassAnalyzer == MassAnalyzerType.MassAnalyzerITMS)
-                {
-                    var scanData = raw.GetSimplifiedScan(scanNumber);
-                    centroidStream.Masses = scanData.Masses;
-                    centroidStream.Intensities = scanData.Intensities;
-                }
-                else
-                {
-                    var scanData = raw.GetSimplifiedCentroids(scanNumber);
-                    centroidStream.Masses = scanData.Masses;
-                    centroidStream.Intensities = scanData.Intensities;
-                }
+                // Get Scan
+                var scan = Scan.FromFile(raw, scanNumber);
 
                 ScanTrailer trailerData;
 
@@ -212,15 +193,43 @@ namespace ThermoRawFileParser.Writer
 
                 }
 
+                double[] masses;
+                double[] intensities;
+
+                if (!ParseInput.NoPeakPicking.Contains(msLevel))
+                {
+                    // Check if the scan has a centroid stream
+                    if (scan.HasCentroidStream)
+                    {
+                        masses = scan.CentroidScan.Masses;
+                        intensities = scan.CentroidScan.Intensities;
+                    }
+                    else // otherwise take the segmented (low res) scan
+                    {
+                        // If the spectrum is profile perform centroiding
+                        var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
+                            ? Scan.ToCentroid(scan).SegmentedScan
+                            : scan.SegmentedScan;
+
+                        masses = segmentedScan.Positions;
+                        intensities = segmentedScan.Intensities;
+                    }
+                }
+                else // use the segmented data as is
+                {
+                    masses = scan.SegmentedScan.Positions;
+                    intensities = scan.SegmentedScan.Intensities;
+                }
+
                 // Add a row to parquet file for every m/z value in this scan
-                for (int i = 0; i < centroidStream.Masses.Length; i++)
+                for (int i = 0; i < masses.Length; i++)
                 {
                     MzParquet m;
                     m.rt = (float)rt;
                     m.scan = (uint)scanNumber;
                     m.level = (uint)msLevel;
-                    m.intensity = (float)centroidStream.Intensities[i];
-                    m.mz = (float)centroidStream.Masses[i];
+                    m.intensity = (float)intensities[i];
+                    m.mz = (float)masses[i];
                     m.isolation_lower = precursor_data.isolation_lower;
                     m.isolation_upper = precursor_data.isolation_upper;
                     m.precursor_scan = precursor_scan;
