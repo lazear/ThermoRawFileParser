@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using log4net;
 using Parquet.Serialization;
 using ThermoFisher.CommonCore.Data;
@@ -10,7 +12,6 @@ using ThermoFisher.CommonCore.Data.Interfaces;
 
 namespace ThermoRawFileParser.Writer
 {
-
     struct MzParquet
     {
         public uint scan;
@@ -21,9 +22,16 @@ namespace ThermoRawFileParser.Writer
         public float? ion_mobility;
         public float? isolation_lower;
         public float? isolation_upper;
-        public uint? precursor_scan;
+        public int? precursor_scan;
         public float? precursor_mz;
         public uint? precursor_charge;
+    }
+
+    struct PrecursorData
+    {
+        public float? mz;
+        public float? isolation_lower;
+        public float? isolation_upper;
     }
 
     public class ParquetSpectrumWriter : SpectrumWriter
@@ -31,8 +39,18 @@ namespace ThermoRawFileParser.Writer
         private static readonly ILog Log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+        private readonly Regex _filterStringIsolationMzPattern = new Regex(@"ms\d+ (.+?) \[");
+
+        // Precursor scan number (value) and isolation m/z (key) for reference in the precursor element of an MSn spectrum
+        private readonly Dictionary<string, int> _precursorScanNumbers = new Dictionary<string, int>();
+
+        //Precursor information for scans
+        private Dictionary<int, PrecursorInfo> _precursorTree = new Dictionary<int, PrecursorInfo>();
+
         public ParquetSpectrumWriter(ParseInput parseInput) : base(parseInput)
         {
+            _precursorScanNumbers[""] = -1;
+            _precursorTree[-1] = new PrecursorInfo();
         }
 
         public override void Write(IRawDataPlus raw, int firstScanNumber, int lastScanNumber)
@@ -53,15 +71,15 @@ namespace ThermoRawFileParser.Writer
 
             var data = new List<MzParquet>();
 
-            //TODO Precursor tree
-            // map last (msOrder - 1) -> scan number (e.g. mapping precursors)
-            // note, this assumes time dependence of MS1 -> MS2 -> MSN
-            var last_scans = new Dictionary<int, uint>();
-
-
             foreach (var scanNumber in enumerator) 
             {
                 var scanFilter = raw.GetFilterForScanNumber(scanNumber);
+                
+                // Get the scan event for this scan number
+                var scanEvent = raw.GetScanEventForScanNumber(scanNumber);
+
+                // Get scan ms level
+                var msLevel = (int)scanFilter.MSOrder;
 
                 //TODO Centroiding if centroidStream is not available
                 CentroidStream centroidStream = new CentroidStream();
@@ -85,66 +103,113 @@ namespace ThermoRawFileParser.Writer
                     centroidStream.Intensities = scanData.Intensities;
                 }
 
+                ScanTrailer trailerData;
 
-                var msOrder = raw.GetScanEventForScanNumber(scanNumber).MSOrder;
-
-                last_scans[(int)msOrder] = (uint)scanNumber;
-
-                double rt = raw.RetentionTimeFromScanNumber(scanNumber);
-                float? isolation_lower = null;
-                float? isolation_upper = null;
-                uint? precursor_scan = null;
-                float? precursor_mz = null;
-                uint? precursor_charge = null;
-
-                if ((int)msOrder > 1)
+                try
                 {
-                    var rx = scanFilter.GetReaction(0);
-
-                    // this assumes symmetrical quad window
-                    isolation_lower = (float)(rx.PrecursorMass - rx.IsolationWidth / 2);
-                    isolation_upper = (float)(rx.PrecursorMass + rx.IsolationWidth / 2);
-                    precursor_mz = (float)rx.PrecursorMass;
-
-                    // Try to retrieve last scan that occurred at the previous msOrder
-                    uint t;
-                    if (last_scans.TryGetValue((int)msOrder - 1, out t))
-                    {
-                        precursor_scan = t;
-                    }
+                    trailerData = new ScanTrailer(raw.GetTrailerExtraInformation(scanNumber));
+                }
+                catch (Exception ex)
+                {
+                    Log.WarnFormat("Cannot load trailer infromation for scan {0} due to following exception\n{1}", scanNumber, ex.Message);
+                    ParseInput.NewWarn();
+                    trailerData = new ScanTrailer();
                 }
 
-                var trailer = raw.GetTrailerExtraInformation(scanNumber);
-                for (var i = 0l; i < trailer.Length; i++)
+                int? trailer_charge = trailerData.AsPositiveInt("Charge State:");
+                double? trailer_mz = trailerData.AsDouble("Monoisotopic M/Z:");
+                double? trailer_isolationWidth = trailerData.AsDouble("MS" + msLevel + " Isolation Width:");
+                double? FAIMSCV = null;
+                if (trailerData.AsBool("FAIMS Voltage On:").GetValueOrDefault(false))
+                    FAIMSCV = trailerData.AsDouble("FAIMS CV:");
+
+                double rt = raw.RetentionTimeFromScanNumber(scanNumber);
+                int precursor_scan = 0;
+                PrecursorData precursor_data = new PrecursorData
                 {
+                    isolation_lower = null,
+                    isolation_upper = null,
+                    mz = null
+                    
+                };
 
-                    if (trailer.Labels[i].StartsWith("Monoisotopic M/Z"))
+                if (msLevel == 1)
+                {
+                    // Keep track of scan number for precursor reference
+                    _precursorScanNumbers[""] = scanNumber;
+                    _precursorTree[scanNumber] = new PrecursorInfo();
+                }
+                else if (msLevel > 1)
+                {
+                    // Keep track of scan number and isolation m/z for precursor reference                   
+                    var result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
+                    if (result.Success)
                     {
-                        var val = float.Parse(trailer.Values[i]);
-                        if (val > 0)
+                        if (_precursorScanNumbers.ContainsKey(result.Groups[1].Value))
                         {
-                            precursor_mz = val;
+                            _precursorScanNumbers.Remove(result.Groups[1].Value);
                         }
+
+                        _precursorScanNumbers.Add(result.Groups[1].Value, scanNumber);
                     }
 
-                    // Overwrite precursor_scan with value from trailer, if it exists
-                    if (trailer.Labels[i].StartsWith("Master Scan"))
+                    //update precursor scan if it is provided in trailer data
+                    var trailerMasterScan = trailerData.AsPositiveInt("Master Scan Number:");
+                    if (trailerMasterScan.HasValue)
                     {
-                        var val = Int64.Parse(trailer.Values[i]);
-                        if (val > 0)
-                        {
-                            precursor_scan = (uint)val;
-                        }
+                        precursor_scan = trailerMasterScan.Value;
+                    }
+                    else //try getting it from the scan filter
+                    {
+                        precursor_scan = GetParentFromScanString(result.Groups[1].Value);
                     }
 
-                    if (trailer.Labels[i].StartsWith("Charge"))
+                    //finding precursor scan failed
+                    if (precursor_scan == -2)
                     {
-                        var val = uint.Parse(trailer.Values[i]);
-                        if (val > 0)
-                        {
-                            precursor_charge = val;
-                        }
+                        Log.Warn($"Cannot find precursor scan for scan# {scanNumber}");
+                        _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), null);
                     }
+
+                    //Parsing the last reaction
+                    try
+                    {
+                        try //since there is no direct way to get the number of reactions available, it is necessary to try and fail
+                        {
+                            scanEvent.GetReaction(_precursorTree[precursor_scan].ReactionCount);
+                        }
+                        catch (ArgumentOutOfRangeException ex)
+                        {
+                            Log.Debug($"Using Tribrid decision tree fix for scan# {scanNumber}");
+                            //Is it a decision tree scheduled scan on tribrid?
+                            if (msLevel == _precursorTree[precursor_scan].MSLevel)
+                            {
+                                precursor_scan = GetParentFromScanString(result.Groups[1].Value);
+                            }
+                            else
+                            {
+                                throw new RawFileParserException(
+                                    $"Tribrid decision tree fix failed - cannot get reaction# {_precursorTree[precursor_scan].ReactionCount} from {scanEvent.ToString()}",
+                                    ex);
+                            }
+                        }
+
+                        // Get Precursor m/z and isolation window borders
+                        precursor_data = GetPrecursorData(precursor_scan, scanEvent, trailer_mz, trailer_isolationWidth, out var reactionCount);
+
+                        //save precursor information for later reference
+                        _precursorTree[scanNumber] = new PrecursorInfo(precursor_scan, msLevel, reactionCount, null);
+                    }
+                    catch (Exception e)
+                    {
+                        var extra = (e.InnerException is null) ? "" : $"\n{e.InnerException.StackTrace}";
+
+                        Log.Warn($"Could not get precursor data for scan# {scanNumber} - precursor information for this and dependent scans will be empty\nException details:{e.Message}\n{e.StackTrace}\n{extra}");
+                        ParseInput.NewWarn();
+
+                        _precursorTree[scanNumber] = new PrecursorInfo(precursor_scan, 1, 0, null);
+                    }
+
                 }
 
                 // Add a row to parquet file for every m/z value in this scan
@@ -153,15 +218,15 @@ namespace ThermoRawFileParser.Writer
                     MzParquet m;
                     m.rt = (float)rt;
                     m.scan = (uint)scanNumber;
-                    m.level = ((uint)msOrder);
+                    m.level = (uint)msLevel;
                     m.intensity = (float)centroidStream.Intensities[i];
                     m.mz = (float)centroidStream.Masses[i];
-                    m.isolation_lower = isolation_lower;
-                    m.isolation_upper = isolation_upper;
+                    m.isolation_lower = precursor_data.isolation_lower;
+                    m.isolation_upper = precursor_data.isolation_upper;
                     m.precursor_scan = precursor_scan;
-                    m.precursor_mz = precursor_mz;
-                    m.precursor_charge = precursor_charge;
-                    m.ion_mobility = null;
+                    m.precursor_mz = precursor_data.mz;
+                    m.precursor_charge = (uint?)trailer_charge;
+                    m.ion_mobility = (float?)FAIMSCV;
                     data.Add(m);
                 }
 
@@ -175,7 +240,7 @@ namespace ThermoRawFileParser.Writer
                     task.Wait();
                     opts.Append = true;
                     data.Clear();
-                    Log.Info("writing row group");
+                    Log.Debug("Writing next row group");
                 }
 
             }
@@ -185,8 +250,127 @@ namespace ThermoRawFileParser.Writer
             {
                 var task = ParquetSerializer.SerializeAsync(data, Writer.BaseStream, opts);
                 task.Wait();
-                Log.Info("writing row group");
+                Log.Debug("Writing final row group");
             }
+        }
+
+        private int GetParentFromScanString(string scanString)
+        {
+            var parts = Regex.Split(scanString, " ");
+
+            //find the position of the first (from the end) precursor with a different mass 
+            //to account for possible supplementary activations written in the filter
+            var lastIonMass = parts.Last().Split('@').First();
+            int last = parts.Length;
+            while (last > 0 &&
+                   parts[last - 1].Split('@').First() == lastIonMass)
+            {
+                last--;
+            }
+
+            string parentFilter = String.Join(" ", parts.Take(last));
+            if (_precursorScanNumbers.ContainsKey(parentFilter))
+            {
+                return _precursorScanNumbers[parentFilter];
+            }
+
+            return -2; //unsuccessful parsing
+        }
+
+        
+        private int FindLastReaction(IScanEvent scanEvent, int msLevel)
+        {
+            int lastReactionIndex = msLevel - 2;
+
+            //iteratively trying find the last available index for reaction
+            while (true)
+            {
+                try
+                {
+                    scanEvent.GetReaction(lastReactionIndex + 1);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    //stop trying
+                    break;
+                }
+
+                lastReactionIndex++;
+            }
+
+            //supplemental activation flag is on -> one of the levels (not necissirily the last one) used supplemental activation
+            //check last two activations
+            if (scanEvent.SupplementalActivation == TriState.On)
+            {
+                var lastActivation = scanEvent.GetReaction(lastReactionIndex).ActivationType;
+                var beforeLastActivation = scanEvent.GetReaction(lastReactionIndex - 1).ActivationType;
+
+                if ((beforeLastActivation == ActivationType.ElectronTransferDissociation || beforeLastActivation == ActivationType.ElectronCaptureDissociation) &&
+                    (lastActivation == ActivationType.CollisionInducedDissociation || lastActivation == ActivationType.HigherEnergyCollisionalDissociation))
+                    return lastReactionIndex - 1; //ETD or ECD followed by HCD or CID -> supplemental activation in the last level (move the last reaction one step back)
+                else
+                    return lastReactionIndex;
+            }
+            else //just use the last one
+            {
+                return lastReactionIndex;
+            }
+        }
+
+        private PrecursorData GetPrecursorData(int precursorScanNumber, IScanEventBase scanEvent,
+            double? monoisotopicMz, double? isolationWidth, out int reactionCount)
+        {
+            double? isolation_lower = null;
+            double? isolation_upper = null;
+
+            // Get precursors from earlier levels
+            var prevPrecursors = _precursorTree[precursorScanNumber];
+            reactionCount = prevPrecursors.ReactionCount;
+
+            var reaction = scanEvent.GetReaction(reactionCount);
+
+            //if isolation width was not found in the trailer, try to get one from the reaction
+            if (isolationWidth == null) isolationWidth = reaction.IsolationWidth;
+            if (isolationWidth < 0) isolationWidth = null;
+
+            // Selected ion MZ
+            var selectedIonMz = CalculateSelectedIonMz(reaction, monoisotopicMz, isolationWidth);
+
+            if (isolationWidth != null)
+            {
+                var offset = isolationWidth.Value / 2 + reaction.IsolationWidthOffset;
+                isolation_lower = reaction.PrecursorMass - isolationWidth.Value + offset;
+                isolation_upper = reaction.PrecursorMass + offset;
+            }
+
+            // Activation only to keep track of the reactions
+            //increase reaction count
+            reactionCount++;
+
+            //Sometimes the property of supplemental activation is not set (Tune v4 on Tribrid),
+            //or is On if *at least* one of the levels had SA (i.e. not necissirily the last one), thus we need to try (and posibly fail)
+            try
+            {
+                reaction = scanEvent.GetReaction(reactionCount);
+
+                if (reaction != null)
+                {
+                    //increase reaction count after successful parsing
+                    reactionCount++;
+                }
+            }
+            catch (IndexOutOfRangeException)
+            {
+                // If we failed do nothing
+            }
+            
+            return new PrecursorData
+            {
+                mz = (float?)selectedIonMz,
+                isolation_lower = (float?)isolation_lower,
+                isolation_upper = (float?)isolation_upper
+            };
+
         }
     }
 
