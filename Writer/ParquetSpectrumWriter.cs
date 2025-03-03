@@ -36,6 +36,8 @@ namespace ThermoRawFileParser.Writer
         private static readonly ILog Log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
+        private const int ParquetRowGroupSize = 1_048_576;
+
         public ParquetSpectrumWriter(ParseInput parseInput) : base(parseInput)
         {
             //nothing to do here
@@ -49,7 +51,7 @@ namespace ThermoRawFileParser.Writer
             }
 
             ConfigureWriter(".mzparquet");
-            
+
             ParquetSerializerOptions opts = new ParquetSerializerOptions();
             opts.CompressionLevel = System.IO.Compression.CompressionLevel.Fastest;
             opts.CompressionMethod = Parquet.CompressionMethod.Zstd;
@@ -91,7 +93,7 @@ namespace ThermoRawFileParser.Writer
                 // - some row groups might have more than this number of ions
                 //   but this ensures that all ions from a single scan are always
                 //   present in the same row group (critical property of mzparquet)
-                if (data.Count >= 1_048_576)
+                if (data.Count >= ParquetRowGroupSize)
                 {
                     var task = ParquetSerializer.SerializeAsync(data, Writer.BaseStream, opts);
                     task.Wait();
@@ -108,6 +110,10 @@ namespace ThermoRawFileParser.Writer
                 task.Wait();
                 Log.Debug("Writing final row group");
             }
+
+            // Release the OS file handle
+            Writer.Flush();
+            Writer.Close();
         }
 
         private void AddScan(IRawDataPlus raw, int scanNumber, List<MzParquet> data)

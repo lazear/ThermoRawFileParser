@@ -641,21 +641,6 @@ namespace ThermoRawFileParser.Writer
 
                 Writer.Flush();
                 Writer.Close();
-
-                //This section is not necessary?
-                /*if (_doIndexing)
-                {
-                    try
-                    {
-                        cryptoStream.Flush();
-                        cryptoStream.Close();
-                    }
-                    catch (System.ObjectDisposedException e)
-                    {
-                        // Cannot access a closed file.  CryptoStream was already closed when closing _writer
-                        Log.Warn($"Warning: {e.Message}");
-                    }
-                }*/
             }
 
             // In case of indexed mzML, change the extension from xml to mzML and check for the gzip option
