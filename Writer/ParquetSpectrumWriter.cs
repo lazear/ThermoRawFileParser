@@ -36,7 +36,7 @@ namespace ThermoRawFileParser.Writer
         private static readonly ILog Log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        private const int ParquetRowGroupSize = 1_048_576;
+        private const int ParquetSliceSize = 1_048_576;
 
         public ParquetSpectrumWriter(ParseInput parseInput) : base(parseInput)
         {
@@ -80,8 +80,13 @@ namespace ThermoRawFileParser.Writer
                 try
                 {
                     int level = (int)raw.GetScanEventForScanNumber(scanNumber).MSOrder; //applying MS level filter
-                    if (ParseInput.MsLevel.Contains(level))
-                        AddScan(raw, scanNumber, data);
+                    if (level <= ParseInput.MaxLevel) // Primary MS level filter
+                    {
+                        var scanData = ReadScan(raw, scanNumber);
+                        if (scanData != null && ParseInput.MsLevel.Contains(level)) // Final MS level filter
+                            data.AddRange(scanData);
+                    }
+                    
                 }
                 catch (Exception ex)
                 {
@@ -93,7 +98,7 @@ namespace ThermoRawFileParser.Writer
                 // - some row groups might have more than this number of ions
                 //   but this ensures that all ions from a single scan are always
                 //   present in the same row group (critical property of mzparquet)
-                if (data.Count >= ParquetRowGroupSize)
+                if (data.Count >= ParquetSliceSize)
                 {
                     var task = ParquetSerializer.SerializeAsync(data, Writer.BaseStream, opts);
                     task.Wait();
@@ -111,12 +116,17 @@ namespace ThermoRawFileParser.Writer
                 Log.Debug("Writing final row group");
             }
 
+            if (ParseInput.LogFormat == LogFormat.DEFAULT) //Add new line after progress bar
+            {
+                Console.WriteLine();
+            }
+
             // Release the OS file handle
             Writer.Flush();
             Writer.Close();
         }
 
-        private void AddScan(IRawDataPlus raw, int scanNumber, List<MzParquet> data)
+        private List<MzParquet> ReadScan(IRawDataPlus raw, int scanNumber)
         {
             var scanFilter = raw.GetFilterForScanNumber(scanNumber);
 
@@ -265,6 +275,7 @@ namespace ThermoRawFileParser.Writer
                 intensities = scan.SegmentedScan.Intensities;
             }
 
+            List<MzParquet> scanData = new List<MzParquet>(masses.Length);
             // Add a row to parquet file for every m/z value in this scan
             for (int i = 0; i < masses.Length; i++)
             {
@@ -280,8 +291,10 @@ namespace ThermoRawFileParser.Writer
                 m.precursor_mz = precursor_data.mz;
                 m.precursor_charge = (uint?)trailer_charge;
                 m.ion_mobility = (float?)FAIMSCV;
-                data.Add(m);
+                scanData.Add(m);
             }
+
+            return scanData;
         }
 
         private PrecursorData GetPrecursorData(int precursorScanNumber, IScanEventBase scanEvent,
