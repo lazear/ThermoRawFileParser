@@ -5,6 +5,7 @@ using System.Linq;
 using System.Xml.Serialization;
 using IO.Mgf;
 using NUnit.Framework;
+using Parquet;
 using ThermoRawFileParser;
 using ThermoRawFileParser.Writer.MzML;
 
@@ -280,6 +281,59 @@ namespace ThermoRawFileParserTest
             //Assert.IsTrue(selectedI - 10073 < 1);
 
             Assert.That(testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength, Is.EqualTo(95));
+        }
+
+        [Test]
+        public void TestParquetCentroid()
+        {
+            // Get temp path for writing the test mzML
+            var tempFilePath = Path.GetTempPath();
+
+            var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small.RAW");
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.Parquet);
+
+            RawFileParser.Parse(parseInput);
+
+            // Actual test
+            var parquetFilePath = Path.Combine(tempFilePath, "small.mzparquet");
+
+            using (var parquetReader = ParquetReader.CreateAsync(parquetFilePath).Result)
+            {
+                var groupReader = parquetReader.OpenRowGroupReader(0);
+                var schema = parquetReader.Schema;
+                var scanColumn = groupReader.ReadColumnAsync(schema.FindDataField("scan")).Result;
+
+                Assert.That(scanColumn.NumValues, Is.EqualTo(48520));
+                Assert.That(scanColumn.Statistics.DistinctCount, Is.EqualTo(48));
+                Assert.That((from int p in scanColumn.Data where p == 22 select p).Count(), Is.EqualTo(1632));
+            }
+        }
+
+        [Test]
+        public void TestParquetProfile()
+        {
+            // Get temp path for writing the test mzML
+            var tempFilePath = Path.GetTempPath();
+
+            var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small.RAW");
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.Parquet);
+            parseInput.NoPeakPicking = new HashSet<int> { 1, 2 };
+
+            RawFileParser.Parse(parseInput);
+
+            // Actual test
+            var parquetFilePath = Path.Combine(tempFilePath, "small.mzparquet");
+
+            using (var parquetReader = ParquetReader.CreateAsync(parquetFilePath).Result)
+            {
+                var groupReader = parquetReader.OpenRowGroupReader(0);
+                var schema = parquetReader.Schema;
+                var scanColumn = groupReader.ReadColumnAsync(schema.FindDataField("scan")).Result;
+
+                Assert.That(scanColumn.NumValues, Is.EqualTo(305213));
+                Assert.That(scanColumn.Statistics.DistinctCount, Is.EqualTo(48));
+                Assert.That((from int p in scanColumn.Data where p == 22 select p).Count(), Is.EqualTo(17758));
+            }
         }
     }
 }

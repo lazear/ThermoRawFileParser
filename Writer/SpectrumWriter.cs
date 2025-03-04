@@ -1,13 +1,16 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using log4net;
 using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
 using ThermoRawFileParser.Util;
+using System.Linq;
 
 namespace ThermoRawFileParser.Writer
 {
@@ -42,6 +45,15 @@ namespace ThermoRawFileParser.Writer
         /// </summary>
         private static LimitedSizeDictionary<int, MZArray> precursorCache;
 
+        // Precursor scan number (value) and isolation m/z (key) for reference in the precursor element of an MSn spectrum
+        private protected readonly Dictionary<string, int> _precursorScanNumbers = new Dictionary<string, int>();
+
+        //Precursor information for scans
+        private protected Dictionary<int, PrecursorInfo> _precursorTree = new Dictionary<int, PrecursorInfo>();
+
+        // Filter string regex to extract an isoaltion entry
+        private protected readonly Regex _filterStringIsolationMzPattern = new Regex(@"ms\d+ (.+?) \[");
+
         /// <summary>
         /// Constructor.
         /// </summary>
@@ -50,6 +62,8 @@ namespace ThermoRawFileParser.Writer
         {
             ParseInput = parseInput;
             precursorCache = new LimitedSizeDictionary<int, MZArray>(10);
+            _precursorScanNumbers[""] = -1;
+            _precursorTree[-1] = new PrecursorInfo();
         }
 
         /// <inheritdoc />
@@ -68,42 +82,27 @@ namespace ThermoRawFileParser.Writer
                 return;
             }
 
-            if (ParseInput.OutputFile == null)
+            var fileName = NormalizeFileName(ParseInput.OutputFile, extension, ParseInput.Gzip);
+            if (ParseInput.OutputFormat == OutputFormat.Parquet)
             {
-                var fullExtension = ParseInput.Gzip ? extension + ".gz" : extension;
-                if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
-                {
-                    Writer = File.CreateText(ParseInput.OutputDirectory + "//" +
-                                             ParseInput.RawFileNameWithoutExtension +
-                                             extension);
-                }
-                else
-                {
-                    var fileStream = File.Create(ParseInput.OutputDirectory + "//" +
-                                                 ParseInput.RawFileNameWithoutExtension + fullExtension);
-                    var compress = new GZipStream(fileStream, CompressionMode.Compress);
-                    Writer = new StreamWriter(compress);
-                }
+                Writer = new StreamWriter(File.Create(fileName));
+            }
+            else if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
+            {
+                Writer = File.CreateText(fileName);
             }
             else
             {
-                var fileName = NormalizeFileName(ParseInput.OutputFile, extension, ParseInput.Gzip);
-                if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
-                {
-                    Writer = File.CreateText(fileName);
-                }
-                else
-                {
-                    var fileStream = File.Create(fileName);
-                    var compress = new GZipStream(fileStream, CompressionMode.Compress);
-                    Writer = new StreamWriter(compress);
-                }
+                var fileStream = File.Create(fileName);
+                var compress = new GZipStream(fileStream, CompressionMode.Compress);
+                Writer = new StreamWriter(compress);
             }
+            
         }
 
         private string NormalizeFileName(string outputFile, string extension, bool gzip)
         {
-            string result = outputFile;
+            string result = outputFile == null ? Path.Combine(ParseInput.OutputDirectory, ParseInput.RawFileNameWithoutExtension) : outputFile;
             string tail = "";
 
             string[] extensions;
@@ -266,6 +265,68 @@ namespace ThermoRawFileParser.Writer
             }
 
             return precursorIntensity;
+        }
+
+        private protected int GetParentFromScanString(string scanString)
+        {
+            var parts = Regex.Split(scanString, " ");
+
+            //find the position of the first (from the end) precursor with a different mass 
+            //to account for possible supplementary activations written in the filter
+            var lastIonMass = parts.Last().Split('@').First();
+            int last = parts.Length;
+            while (last > 0 &&
+                   parts[last - 1].Split('@').First() == lastIonMass)
+            {
+                last--;
+            }
+
+            string parentFilter = String.Join(" ", parts.Take(last));
+            if (_precursorScanNumbers.ContainsKey(parentFilter))
+            {
+                return _precursorScanNumbers[parentFilter];
+            }
+
+            return -2; //unsuccessful parsing
+        }
+
+        private protected int FindLastReaction(IScanEvent scanEvent, int msLevel)
+        {
+            int lastReactionIndex = msLevel - 2;
+
+            //iteratively trying find the last available index for reaction
+            while (true)
+            {
+                try
+                {
+                    scanEvent.GetReaction(lastReactionIndex + 1);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    //stop trying
+                    break;
+                }
+
+                lastReactionIndex++;
+            }
+
+            //supplemental activation flag is on -> one of the levels (not necissirily the last one) used supplemental activation
+            //check last two activations
+            if (scanEvent.SupplementalActivation == TriState.On)
+            {
+                var lastActivation = scanEvent.GetReaction(lastReactionIndex).ActivationType;
+                var beforeLastActivation = scanEvent.GetReaction(lastReactionIndex - 1).ActivationType;
+
+                if ((beforeLastActivation == ActivationType.ElectronTransferDissociation || beforeLastActivation == ActivationType.ElectronCaptureDissociation) &&
+                    (lastActivation == ActivationType.CollisionInducedDissociation || lastActivation == ActivationType.HigherEnergyCollisionalDissociation))
+                    return lastReactionIndex - 1; //ETD or ECD followed by HCD or CID -> supplemental activation in the last level (move the last reaction one step back)
+                else
+                    return lastReactionIndex;
+            }
+            else //just use the last one
+            {
+                return lastReactionIndex;
+            }
         }
     }
 }

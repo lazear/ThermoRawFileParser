@@ -27,8 +27,6 @@ namespace ThermoRawFileParser.Writer
         private static readonly ILog Log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        private readonly Regex _filterStringIsolationMzPattern = new Regex(@"ms\d+ (.+?) \[");
-
         // Tune version < 3 produces multiple trailer entry like "SPS Mass [number]"
         private readonly Regex _spSentry = new Regex(@"SPS Mass\s+\d+:");
 
@@ -44,12 +42,6 @@ namespace ThermoRawFileParser.Writer
         // Dictionary to keep track of the different ionization modes (key: Thermo IonizationModeType; value: the reference string)
         private readonly Dictionary<IonizationModeType, CVParamType> _ionizationTypes =
             new Dictionary<IonizationModeType, CVParamType>();
-
-        // Precursor scan number (value) and isolation m/z (key) for reference in the precursor element of an MSn spectrum
-        private readonly Dictionary<string, int> _precursorScanNumbers = new Dictionary<string, int>();
-
-        //Precursor information for scans
-        private Dictionary<int, PrecursorInfo> _precursorTree = new Dictionary<int, PrecursorInfo>();
 
         private const string SourceFileId = "RAW1";
         private readonly XmlSerializerFactory _factory = new XmlSerializerFactory();
@@ -68,8 +60,6 @@ namespace ThermoRawFileParser.Writer
             _mzMlNamespace.Add(string.Empty, "http://psi.hupo.org/ms/mzml");
             _doIndexing = ParseInput.OutputFormat == OutputFormat.IndexMzML;
             _osOffset = Environment.NewLine == "\n" ? 0 : 1;
-            _precursorScanNumbers[""] = -1;
-            _precursorTree[-1] = new PrecursorInfo();
         }
 
         /// <inheritdoc />
@@ -639,7 +629,6 @@ namespace ThermoRawFileParser.Writer
 
                     _writer.WriteValue(BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant());
                     _writer.WriteEndElement(); // fileChecksum
-
                     _writer.WriteEndElement(); // indexedmzML                                           
                 }
 
@@ -652,21 +641,6 @@ namespace ThermoRawFileParser.Writer
 
                 Writer.Flush();
                 Writer.Close();
-
-                //This section is not necessary?
-                /*if (_doIndexing)
-                {
-                    try
-                    {
-                        cryptoStream.Flush();
-                        cryptoStream.Close();
-                    }
-                    catch (System.ObjectDisposedException e)
-                    {
-                        // Cannot access a closed file.  CryptoStream was already closed when closing _writer
-                        Log.Warn($"Warning: {e.Message}");
-                    }
-                }*/
             }
 
             // In case of indexed mzML, change the extension from xml to mzML and check for the gzip option
@@ -1286,7 +1260,7 @@ namespace ThermoRawFileParser.Writer
             int? charge = trailerData.AsPositiveInt("Charge State:");
             double? monoisotopicMz = trailerData.AsDouble("Monoisotopic M/Z:");
             double? ionInjectionTime = trailerData.AsDouble("Ion Injection Time (ms):");
-            double? isolationWidth = trailerData.AsDouble("MS" + (int) scanFilter.MSOrder + " Isolation Width:");
+            double? isolationWidth = trailerData.AsDouble("MS" + msLevel + " Isolation Width:");
             double? FAIMSCV = null;
             if (trailerData.AsBool("FAIMS Voltage On:").GetValueOrDefault(false))
                 FAIMSCV = trailerData.AsDouble("FAIMS CV:");
@@ -1374,6 +1348,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     Log.Warn($"Cannot find precursor scan for scan# {scanNumber}");
                     _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), new PrecursorType[0]);
+                    ParseInput.NewWarn();
                 }
 
                 try
@@ -2011,46 +1986,6 @@ namespace ThermoRawFileParser.Writer
 
             return spectrum;
         }
-
-        private int FindLastReaction(IScanEvent scanEvent, int msLevel)
-        {
-            int lastReactionIndex = msLevel - 2;
-
-            //iteratively trying find the last available index for reaction
-            while(true)
-            {
-                try
-                {
-                    scanEvent.GetReaction(lastReactionIndex + 1);
-                }
-                catch (ArgumentOutOfRangeException)
-                {
-                    //stop trying
-                    break;
-                }
-
-                lastReactionIndex++;
-            }
-
-            //supplemental activation flag is on -> one of the levels (not necissirily the last one) used supplemental activation
-            //check last two activations
-            if (scanEvent.SupplementalActivation == TriState.On) 
-            {
-                var lastActivation = scanEvent.GetReaction(lastReactionIndex).ActivationType;
-                var beforeLastActivation = scanEvent.GetReaction(lastReactionIndex - 1).ActivationType;
-
-                if ((beforeLastActivation == ActivationType.ElectronTransferDissociation || beforeLastActivation == ActivationType.ElectronCaptureDissociation) &&
-                    (lastActivation == ActivationType.CollisionInducedDissociation || lastActivation == ActivationType.HigherEnergyCollisionalDissociation))
-                    return lastReactionIndex - 1; //ETD or ECD followed by HCD or CID -> supplemental activation in the last level (move the last reaction one step back)
-                else
-                    return lastReactionIndex;
-            }
-            else //just use the last one
-            {
-                return lastReactionIndex;
-            }
-        }
-
         private SpectrumType ConstructPDASpectrum(int scanNumber, int instrumentNumber)
         {
             // Get each scan from the RAW file
@@ -2629,29 +2564,6 @@ namespace ThermoRawFileParser.Writer
                 precursor = precursors.ToArray()
             };
 
-        }
-
-        private int GetParentFromScanString(string scanString)
-        {
-            var parts = Regex.Split(scanString, " ");
-
-            //find the position of the first (from the end) precursor with a different mass 
-            //to account for possible supplementary activations written in the filter
-            var lastIonMass = parts.Last().Split('@').First();
-            int last = parts.Length;
-            while (last > 0 &&
-                   parts[last - 1].Split('@').First() == lastIonMass)
-            {
-                last--;
-            }
-
-            string parentFilter = String.Join(" ", parts.Take(last));
-            if (_precursorScanNumbers.ContainsKey(parentFilter))
-            {
-                return _precursorScanNumbers[parentFilter];
-            }
-
-            return -2; //unsuccessful parsing
         }
 
         /// <summary>
