@@ -18,6 +18,7 @@
     <RepositoryUrl>https://github.com/compomics/ThermoRawFileParser</RepositoryUrl>
     <Authors>Compomics</Authors>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageLicenseFile>THERMO_LICENSE</PackageLicenseFile>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -49,10 +50,14 @@
     <None Update="LICENSE">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="README.md">
       <Pack>True</Pack>
       <PackagePath>\</PackagePath>
+    </None>
+    <None Update="THERMO_LICENSE">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
 
