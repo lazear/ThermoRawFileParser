@@ -121,13 +121,13 @@ namespace ThermoRawFileParser
             {
                 if (!rawFile.IsOpen)
                 {
-                    throw new RawFileParserException("Unable to access the RAW file using the native Thermo library.");
+                    throw new RawFileParserException("Unable to access the RAW file using the native Thermo API");
                 }
 
                 // Check for any errors in the RAW file
                 if (rawFile.IsError)
                 {
-                    throw new RawFileParserException($"RAW file cannot be processed because of an error - {rawFile.FileError}");
+                    throw new RawFileParserException($"Native Thermo API reported the following error - RAW file is likely corrupted\n{rawFile.FileError.ErrorMessage}");
                 }
 
                 // Check if the RAW file is being acquired
