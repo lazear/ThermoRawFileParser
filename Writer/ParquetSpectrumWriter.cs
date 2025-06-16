@@ -260,19 +260,32 @@ namespace ThermoRawFileParser.Writer
                 }
                 else // otherwise take the segmented (low res) scan
                 {
-                    // If the spectrum is profile perform centroiding
-                    var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
-                        ? Scan.ToCentroid(scan).SegmentedScan
-                        : scan.SegmentedScan;
+                    if (scan.SegmentedScan.PositionCount > 0)
+                    {
+                        // If the spectrum is profile perform centroiding
+                        var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
+                            ? Scan.ToCentroid(scan).SegmentedScan
+                            : scan.SegmentedScan;
 
-                    masses = segmentedScan.Positions;
-                    intensities = segmentedScan.Intensities;
+                        masses = segmentedScan.Positions;
+                        intensities = segmentedScan.Intensities;
+                    }
+                    else
+                    {
+                        masses = Array.Empty<double>();
+                        intensities = Array.Empty<double>();
+                    }
                 }
             }
             else // use the segmented data as is
             {
                 masses = scan.SegmentedScan.Positions;
                 intensities = scan.SegmentedScan.Intensities;
+            }
+
+            if (masses.Length == 0 || intensities.Length == 0)
+            {
+                Log.WarnFormat("Spectrum {0} has no m/z data", scanNumber);
             }
 
             List<MzParquet> scanData = new List<MzParquet>(masses.Length);

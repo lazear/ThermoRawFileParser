@@ -198,14 +198,23 @@ namespace ThermoRawFileParser.Writer
                             }
                             else // Otherwise take segmented (low res) scan data
                             {
-                                // If the spectrum is profile perform centroiding
-                                var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
-                                    ? Scan.ToCentroid(scan).SegmentedScan
-                                    : scan.SegmentedScan;
+                                if (scan.SegmentedScan.PositionCount > 0)
+                                {
+                                    // If the spectrum is profile perform centroiding
+                                    var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
+                                        ? Scan.ToCentroid(scan).SegmentedScan
+                                        : scan.SegmentedScan;
 
-                                masses = segmentedScan.Positions;
-                                raw_masses = (double[])masses.Clone();
-                                intensities = segmentedScan.Intensities;
+                                    masses = segmentedScan.Positions;
+                                    raw_masses = (double[])masses.Clone();
+                                    intensities = segmentedScan.Intensities;
+                                }
+                                else
+                                {
+                                    masses = Array.Empty<double>();
+                                    raw_masses = Array.Empty<double>();
+                                    intensities = Array.Empty<double>();
+                                }
                             }
                         }
                         else // Use the segmented data as is
@@ -237,6 +246,11 @@ namespace ThermoRawFileParser.Writer
                                     Writer.WriteLine(String.Format("{0:f5} {1:f3}", masses[i], intensities[i]));
                                 }
                             }
+                        }
+                        else
+                        {
+                            Log.WarnFormat("Spectrum {0} has no m/z data", scanNumber);
+                            ParseInput.NewWarn();
                         }
 
                         Writer.WriteLine("END IONS");

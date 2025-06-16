@@ -1494,21 +1494,30 @@ namespace ThermoRawFileParser.Writer
                     basePeakMass = scan.ScanStatistics.BasePeakMass;
                     basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
 
-                    // If the spectrum is profile perform centroiding
-                    var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
-                        ? Scan.ToCentroid(scan).SegmentedScan
-                        : scan.SegmentedScan;
+                    if (scan.SegmentedScan.PositionCount > 0)
+                    {                 
+                        // If the spectrum is profile perform centroiding
+                        var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
+                            ? Scan.ToCentroid(scan).SegmentedScan
+                            : scan.SegmentedScan;
 
-                    masses = segmentedScan.Positions;
-                    raw_masses = (double[]) masses.Clone();
-                    intensities = segmentedScan.Intensities;
+                        masses = segmentedScan.Positions;
+                        raw_masses = (double[])masses.Clone();
+                        intensities = segmentedScan.Intensities;
 
-                    if (segmentedScan.PositionCount > 0)
+                        if (segmentedScan.PositionCount > 0)
+                        {
+                            //Sort masses
+                            Array.Sort(masses);
+                            lowestObservedMz = segmentedScan.Positions[0];
+                            highestObservedMz = segmentedScan.Positions[segmentedScan.PositionCount - 1];
+                        }
+                    }
+                    else
                     {
-                        //Sort masses
-                        Array.Sort(masses);
-                        lowestObservedMz = segmentedScan.Positions[0];
-                        highestObservedMz = segmentedScan.Positions[segmentedScan.PositionCount - 1];
+                        masses = Array.Empty<double>();
+                        intensities = Array.Empty<double>();
+                        raw_masses = Array.Empty<double>();
                     }
                 }
             }
@@ -1538,6 +1547,7 @@ namespace ThermoRawFileParser.Writer
 
                 basePeakMass = scan.ScanStatistics.BasePeakMass;
                 basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
+                
                 masses = scan.SegmentedScan.Positions;
                 raw_masses = (double[])masses.Clone();
                 intensities = scan.SegmentedScan.Intensities;
@@ -1622,6 +1632,12 @@ namespace ThermoRawFileParser.Writer
             {
                 // Set the spectrum default array length
                 spectrum.defaultArrayLength = masses.Length;
+
+                if (masses.Length == 0)
+                {
+                    Log.WarnFormat("Spectrum {0} has no m/z data", scanNumber);
+                    ParseInput.NewWarn();
+                }
 
                 var massesBinaryData =
                     new BinaryDataArrayType

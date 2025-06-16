@@ -243,12 +243,20 @@ namespace ThermoRawFileParser.Writer
                     else
                     {
                         var scanEvent = rawFile.GetScanEventForScanNumber(precursorScanNumber);
-                        var centroidedScan = scanEvent.ScanData == ScanDataType.Profile //only centroid profile spectra
-                            ? Scan.ToCentroid(scan).SegmentedScan
-                            : scan.SegmentedScan;
+                        if (scan.SegmentedScan.PositionCount > 0)
+                        {
+                            var centroidedScan = scanEvent.ScanData == ScanDataType.Profile //only centroid profile spectra
+                                ? Scan.ToCentroid(scan).SegmentedScan
+                                : scan.SegmentedScan;
 
-                        masses = centroidedScan.Positions;
-                        intensities = centroidedScan.Intensities;
+                            masses = centroidedScan.Positions;
+                            intensities = centroidedScan.Intensities;
+                        }
+                        else
+                        {
+                            masses = Array.Empty<double>();
+                            intensities = Array.Empty<double>();
+                        }
                     }
                 }
 
