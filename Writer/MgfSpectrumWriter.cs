@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Globalization;
 using System.Reflection;
 using log4net;
 using ThermoFisher.CommonCore.Data.Business;
@@ -88,50 +87,49 @@ namespace ThermoRawFileParser.Writer
                     // Construct the precursor reference string for the title 
                     var precursorReference = "";
 
-                    if (ParseInput.MgfPrecursor)
+                    //Tracking precursor scan numbers for MSn scans
+                    if (msLevel == 1)
                     {
-                        if (msLevel == 1)
+                        // Keep track of the MS1 scan number for precursor reference
+                        _precursorScanNumbers[""] = scanNumber;
+                    }
+                    else
+                    {
+                        // Keep track of scan number and isolation m/z for precursor reference                   
+                        var result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
+                        if (result.Success)
                         {
-                            // Keep track of the MS1 scan number for precursor reference
-                            _precursorScanNumbers[""] = scanNumber;
+                            if (_precursorScanNumbers.ContainsKey(result.Groups[1].Value))
+                            {
+                                _precursorScanNumbers.Remove(result.Groups[1].Value);
+                            }
+
+                            _precursorScanNumbers.Add(result.Groups[1].Value, scanNumber);
+                        }
+
+                        //update precursor scan if it is provided in trailer data
+                        var trailerMasterScan = trailerData.AsPositiveInt("Master Scan Number:");
+                        if (trailerMasterScan.HasValue)
+                        {
+                            _precursorScanNumber = trailerMasterScan.Value;
+                        }
+                        else //try getting it from the scan filter
+                        {
+                            _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
+                        }
+
+                        if (_precursorScanNumber > 0)
+                        {
+                            precursorReference = ConstructSpectrumTitle((int)Device.MS, 1, _precursorScanNumber);
                         }
                         else
                         {
-                            // Keep track of scan number and isolation m/z for precursor reference                   
-                            var result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
-                            if (result.Success)
-                            {
-                                if (_precursorScanNumbers.ContainsKey(result.Groups[1].Value))
-                                {
-                                    _precursorScanNumbers.Remove(result.Groups[1].Value);
-                                }
-
-                                _precursorScanNumbers.Add(result.Groups[1].Value, scanNumber);
-                            }
-
-                            //update precursor scan if it is provided in trailer data
-                            var trailerMasterScan = trailerData.AsPositiveInt("Master Scan Number:");
-                            if (trailerMasterScan.HasValue)
-                            {
-                                _precursorScanNumber = trailerMasterScan.Value;
-                            }
-                            else //try getting it from the scan filter
-                            {
-                                _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
-                            }
-
-                            if (_precursorScanNumber > 0)
-                            {
-                                precursorReference = ConstructSpectrumTitle((int)Device.MS, 1, _precursorScanNumber);
-                            }
-                            else
-                            {
-                                Log.Error($"Cannot find precursor scan for scan# {scanNumber}");
-                                _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), null);
-                                ParseInput.NewError();
-                            }
+                            Log.Error($"Cannot find precursor scan for scan# {scanNumber}");
+                            _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), null);
+                            ParseInput.NewError();
                         }
                     }
+                    
 
                     if (ParseInput.MsLevel.Contains(msLevel))
                     {
@@ -150,7 +148,7 @@ namespace ThermoRawFileParser.Writer
 
                         Writer.WriteLine($"SCANS={scanNumber}");
                         Writer.WriteLine(
-                            $"RTINSECONDS={(retentionTime * 60).ToString(CultureInfo.InvariantCulture)}");
+                            $"RTINSECONDS={(retentionTime * 60):f5}");
 
                         int? charge = trailerData.AsPositiveInt("Charge State:");
                         double? monoisotopicMz = trailerData.AsDouble("Monoisotopic M/Z:");
@@ -162,8 +160,11 @@ namespace ThermoRawFileParser.Writer
                             var selectedIonMz =
                                 CalculateSelectedIonMz(reaction, monoisotopicMz, isolationWidth);
 
-                            Writer.WriteLine("PEPMASS=" +
-                                             selectedIonMz.ToString(CultureInfo.InvariantCulture));
+                            var selectedIonIntensity = (selectedIonMz > ZeroDelta && _precursorScanNumber > 0) ?
+                                CalculatePrecursorPeakIntensity(rawFile, _precursorScanNumber, reaction.PrecursorMass, isolationWidth,
+                                    ParseInput.NoPeakPicking.Contains(msLevel - 1)) : 0;
+
+                            Writer.WriteLine($"PEPMASS={selectedIonMz:f5} {selectedIonIntensity:f3}");
                         }
 
                         // Charge

@@ -209,7 +209,7 @@ namespace ThermoRawFileParser.Writer
         /// <param name="precursorMass">the precursor mass</param>
         /// <param name="isolationWidth">the isolation width</param>
         /// <param name="useProfile">profile/centroid switch</param>
-        protected static double? CalculatePrecursorPeakIntensity(IRawDataPlus rawFile, int precursorScanNumber,
+        protected static double CalculatePrecursorPeakIntensity(IRawDataPlus rawFile, int precursorScanNumber,
             double precursorMass, double? isolationWidth, bool useProfile)
         {
             double precursorIntensity = 0;
