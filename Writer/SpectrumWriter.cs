@@ -309,7 +309,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     scanEvent.GetReaction(lastReactionIndex + 1);
                 }
-                catch (ArgumentOutOfRangeException)
+                catch (IndexOutOfRangeException)
                 {
                     //stop trying
                     break;

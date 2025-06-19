@@ -1344,10 +1344,10 @@ namespace ThermoRawFileParser.Writer
                 }
 
                 //finding precursor scan failed
-                if (_precursorScanNumber == -2)
+                if (_precursorScanNumber == -2 || !_precursorTree.ContainsKey(_precursorScanNumber))
                 {
                     Log.Warn($"Cannot find precursor scan for scan# {scanNumber}");
-                    _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), new PrecursorType[0]);
+                    _precursorTree[_precursorScanNumber] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), new PrecursorType[0]);
                     ParseInput.NewWarn();
                 }
 
@@ -1494,8 +1494,9 @@ namespace ThermoRawFileParser.Writer
                     basePeakMass = scan.ScanStatistics.BasePeakMass;
                     basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
 
+                    //cannot centroid empty segmented scan
                     if (scan.SegmentedScan.PositionCount > 0)
-                    {                 
+                    {
                         // If the spectrum is profile perform centroiding
                         var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
                             ? Scan.ToCentroid(scan).SegmentedScan
@@ -1547,7 +1548,7 @@ namespace ThermoRawFileParser.Writer
 
                 basePeakMass = scan.ScanStatistics.BasePeakMass;
                 basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
-                
+
                 masses = scan.SegmentedScan.Positions;
                 raw_masses = (double[])masses.Clone();
                 intensities = scan.SegmentedScan.Intensities;
@@ -2616,6 +2617,7 @@ namespace ThermoRawFileParser.Writer
                 instrumentConfigurationRef = "IC1";
             }
 
+            // Scan start time & scan filter string
             var scanTypeCvParams = new List<CVParamType>
             {
                 new CVParamType
@@ -2634,10 +2636,6 @@ namespace ThermoRawFileParser.Writer
                     name = "filter string", accession = "MS:1000512", value = scanEvent.ToString(), cvRef = "MS"
                 }
             };
-
-            // Scan start time
-
-            // Scan filter string
 
             // Ion injection time
             if (ionInjectionTime.HasValue)
