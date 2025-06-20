@@ -6,6 +6,7 @@ using Parquet.Serialization;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
+using ThermoRawFileParser.Util;
 
 namespace ThermoRawFileParser.Writer
 {
@@ -90,7 +91,8 @@ namespace ThermoRawFileParser.Writer
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"Scan #{scanNumber} cannot be processed because of the following exception: {ex.Message}\n{ex.StackTrace}");
+                    Log.Error($"Scan #{scanNumber} cannot be processed because of the following exception: {ex.Message}");
+                    Log.Debug($"{ex.StackTrace}\n{ex.InnerException}");
                     ParseInput.NewError();
                 }
 
@@ -136,8 +138,7 @@ namespace ThermoRawFileParser.Writer
             // Get scan ms level
             var msLevel = (int)scanFilter.MSOrder;
 
-            // Get Scan
-            var scan = Scan.FromFile(raw, scanNumber);
+            // Get Scan trailer
             ScanTrailer trailerData;
 
             try
@@ -247,57 +248,51 @@ namespace ThermoRawFileParser.Writer
 
             }
 
-            double[] masses;
-            double[] intensities;
+            MZData mzData;
 
-            if (!ParseInput.NoPeakPicking.Contains(msLevel))
+            // Get each mz data for scan
+            try
             {
-                // Check if the scan has a centroid stream
-                if (scan.HasCentroidStream)
-                {
-                    masses = scan.CentroidScan.Masses;
-                    intensities = scan.CentroidScan.Intensities;
-                }
-                else // otherwise take the segmented (low res) scan
-                {
-                    if (scan.SegmentedScan.PositionCount > 0)
-                    {
-                        // If the spectrum is profile perform centroiding
-                        var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
-                            ? Scan.ToCentroid(scan).SegmentedScan
-                            : scan.SegmentedScan;
-
-                        masses = segmentedScan.Positions;
-                        intensities = segmentedScan.Intensities;
-                    }
-                    else
-                    {
-                        masses = Array.Empty<double>();
-                        intensities = Array.Empty<double>();
-                    }
-                }
+                mzData = ReadMZData(raw, scanEvent, scanNumber,
+                    !ParseInput.NoPeakPicking.Contains((int)scanFilter.MSOrder), //requestCentroidedData
+                    false, //requestChargeData
+                    false); //requestNoiseData
             }
-            else // use the segmented data as is
+            catch (Exception ex)
             {
-                masses = scan.SegmentedScan.Positions;
-                intensities = scan.SegmentedScan.Intensities;
+                Log.ErrorFormat("Failed reading mz data for scan #{0} due to following exception: {1}\nMZ data will be empty", scanNumber, ex.Message);
+                Log.DebugFormat("{0}\n{1}", ex.StackTrace, ex.InnerException);
+                ParseInput.NewError();
+
+                mzData = new MZData
+                {
+                    basePeakMass = null,
+                    basePeakIntensity = null,
+                    masses = Array.Empty<double>(),
+                    intensities = Array.Empty<double>(),
+                    charges = Array.Empty<double>(),
+                    baselineData = Array.Empty<double>(),
+                    noiseData = Array.Empty<double>(),
+                    massData = Array.Empty<double>(),
+                    isCentroided = false
+                };
             }
 
-            if (masses.Length == 0 || intensities.Length == 0)
+            if (mzData.masses.Length == 0 || mzData.intensities.Length == 0)
             {
                 Log.WarnFormat("Spectrum {0} has no m/z data", scanNumber);
             }
 
-            List<MzParquet> scanData = new List<MzParquet>(masses.Length);
+            List<MzParquet> scanData = new List<MzParquet>(mzData.masses.Length);
             // Add a row to parquet file for every m/z value in this scan
-            for (int i = 0; i < masses.Length; i++)
+            for (int i = 0; i < mzData.masses.Length; i++)
             {
                 MzParquet m;
                 m.rt = (float)rt;
                 m.scan = (uint)scanNumber;
                 m.level = (uint)msLevel;
-                m.intensity = (float)intensities[i];
-                m.mz = (float)masses[i];
+                m.intensity = (float)mzData.intensities[i];
+                m.mz = (float)mzData.masses[i];
                 m.isolation_lower = precursor_data.isolation_lower;
                 m.isolation_upper = precursor_data.isolation_upper;
                 m.precursor_scan = precursor_scan;
