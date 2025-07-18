@@ -151,7 +151,6 @@ namespace ThermoRawFileParser
             RawDirectoryPath = rawDirectoryPath;
             OutputDirectory = outputDirectory;
             OutputFormat = outputFormat;
-            MgfPrecursor = true;
         }
 
         public void InitializeS3Bucket()

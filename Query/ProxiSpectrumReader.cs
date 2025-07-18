@@ -256,7 +256,7 @@ namespace ThermoRawFileParser.Query
                         }
                         else
                         {
-                            throw ex;
+                            throw;
                         }
                     }
                 }
