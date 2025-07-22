@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-
 namespace ThermoRawFileParser.Query
 {
     public class QueryParameters
@@ -28,7 +26,6 @@ namespace ThermoRawFileParser.Query
         public string scans { get; set; }
         public string outputFile { get; set; }
         public bool noPeakPicking { get; set; }
-        public HashSet<int> scanNumbers { get; set; }
         public bool stdout { get; set; }
         public bool Vigilant { get; set; }
         public int Errors { get => _errors; }
@@ -42,7 +39,6 @@ namespace ThermoRawFileParser.Query
             scans = "";
             outputFile = null;
             noPeakPicking = false;
-            scanNumbers = new HashSet<int>();
             stdout = false;
             Vigilant = false;
             LogFormat = LogFormat.DEFAULT;
@@ -57,8 +53,6 @@ namespace ThermoRawFileParser.Query
             scans = copy.scans;
             outputFile = copy.outputFile;
             noPeakPicking = copy.noPeakPicking;
-            scanNumbers = new HashSet<int>();
-            foreach (int s in copy.scanNumbers) scanNumbers.Add(s);
             stdout = copy.stdout;
             Vigilant = copy.Vigilant;
             LogFormat = copy.LogFormat;

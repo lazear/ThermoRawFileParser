@@ -77,7 +77,19 @@ namespace ThermoRawFileParser.Query
                 // Set a cvGroup number counter
                 var cvGroup = 1;
 
-                foreach (var scanNumber in queryParameters.scanNumbers)
+                NumberIterator scanNumbers;
+
+                try
+                {
+                    scanNumbers = new NumberIterator(queryParameters.scans,
+                        rawFile.RunHeaderEx.FirstSpectrum, rawFile.RunHeaderEx.LastSpectrum);
+                }
+                catch (Exception ex)
+                {
+                    throw new RawFileParserException($"Cannot create scan iterator from {queryParameters.scans} - {ex.Message}");
+                }
+
+                foreach (var scanNumber in scanNumbers.IterateScans())
                 {
                     var proxiSpectrum = new ProxiSpectrum();
                     

@@ -10,8 +10,8 @@ using ThermoRawFileParser.Query;
 using ThermoRawFileParser.XIC;
 using System.Globalization;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.Data;
+using ThermoRawFileParser.Util;
 
 [assembly: log4net.Config.XmlConfigurator()]
 
@@ -942,62 +942,15 @@ namespace ThermoRawFileParser
 
         private static HashSet<int> ParseMsLevel(string inputString)
         {
-            HashSet<int> result = new HashSet<int>();
-            Regex valid = new Regex(@"^[\d,\-\s]+$");
-            Regex interval = new Regex(@"^\s*(\d+)?\s*(-)?\s*(\d+)?\s*$");
-
-            if (!valid.IsMatch(inputString))
-                throw new OptionException("Invalid characters in msLevel key", "msLevel");
-
-            foreach (var piece in inputString.Split(new char[] {','}))
+            try
             {
-                try
-                {
-                    int start;
-                    int end;
-
-                    var intervalMatch = interval.Match(piece);
-
-                    if (!intervalMatch.Success)
-                        throw new OptionException();
-
-                    if (intervalMatch.Groups[2].Success) //it is interval
-                    {
-                        if (intervalMatch.Groups[1].Success)
-                            start = Math.Max(1, int.Parse(intervalMatch.Groups[1].Value));
-                        else
-                            start = 1;
-
-                        if (intervalMatch.Groups[3].Success)
-                            end = Math.Min(10, int.Parse(intervalMatch.Groups[3].Value));
-                        else
-                            end = 10;
-                    }
-                    else
-                    {
-                        if (intervalMatch.Groups[1].Success)
-                            end = start = int.Parse(intervalMatch.Groups[1].Value);
-                        else
-                            throw new OptionException();
-
-                        if (intervalMatch.Groups[3].Success)
-                            throw new OptionException();
-                    }
-
-                    for (int l = start; l <= end; l++)
-                    {
-                        result.Add(l);
-                    }
-                }
-
-                catch (Exception ex)
-                {
-                    throw new OptionException(String.Format("Cannot parse part of msLevel input: '{0}'", piece),
-                        "msLevel", ex);
-                }
+                var levelIterator = new NumberIterator(inputString, 1, 10);
+                return new HashSet<int>(levelIterator.IterateScans());
             }
-
-            return result;
+            catch (Exception ex)
+            {
+                throw new OptionException($"Cannot parse MS level from {inputString} - {ex.Message}", "msLevel");
+            }
         }
     }
 }
