@@ -53,6 +53,8 @@ namespace ThermoRawFileParser.Writer
 
         // Filter string regex to extract an isoaltion entry
         private protected readonly Regex _filterStringIsolationMzPattern = new Regex(@"ms\d+ (.+?) \[");
+        // Filter string regex to extract an parent entry
+        private protected readonly Regex _filterStringParentMzPattern = new Regex(@"pr (.+?) \[");
 
         /// <summary>
         /// Constructor.

@@ -137,10 +137,11 @@ namespace ThermoRawFileParser.Writer
 
                 if (_rawFile.HasMsData)
                 {
-                    var nMS1 = rawFile.GetFilteredScanEnumerator("ms").Count();
-                    var nMS = rawFile.RunHeaderEx.SpectraCount;
+                    var scanCounts = WriterUtil.CountScanOrder(_rawFile);
+                    //Sum all scans with MSOrder > 1
+                    int nMSn = scanCounts.Sum(o => (int)o.Key > 1 ? o.Value : 0);
                     // MS1
-                    if(ParseInput.MsLevel.Contains(1) && nMS1 > 0)
+                    if (ParseInput.MsLevel.Contains(1) && scanCounts[MSOrderType.Ms] > 0)
                     content.Add(new CVParamType
                     {
                         accession = "MS:1000579",
@@ -149,7 +150,7 @@ namespace ThermoRawFileParser.Writer
                         value = ""
                     });
                     // MSn
-                    if(ParseInput.MsLevel.Any(n => n > 1) && nMS > nMS1)
+                    if(ParseInput.MsLevel.Any(n => n > 1) && nMSn > 0)
                     content.Add(new CVParamType
                     {
                         accession = "MS:1000580",
@@ -157,6 +158,30 @@ namespace ThermoRawFileParser.Writer
                         cvRef = "MS",
                         value = ""
                     });
+                    if (scanCounts[MSOrderType.Par] > 0)
+                        content.Add(new CVParamType
+                        {
+                            accession = "MS:1000341",
+                            name = "precursor ion spectrum",
+                            cvRef = "MS",
+                            value = ""
+                        });
+                    if (scanCounts[MSOrderType.Nl] > 0)
+                        content.Add(new CVParamType
+                        {
+                            accession = "MS:1000326",
+                            name = "constant neutral loss spectrum",
+                            cvRef = "MS",
+                            value = ""
+                        });
+                    if (scanCounts[MSOrderType.Ng] > 0)
+                        content.Add(new CVParamType
+                        {
+                            accession = "MS:1000325",
+                            name = "constant neutral gain spectrum",
+                            cvRef = "MS",
+                            value = ""
+                        });
                     // Ion current chromatogram
                     content.Add(OntologyMapping.GetChromatogramType("current"));
                 }
@@ -407,7 +432,7 @@ namespace ThermoRawFileParser.Writer
                             ParseInput.NewError();
                         }
 
-                        level = spectrum != null ? int.Parse(spectrum.cvParam.Where(p => p.accession == "MS:1000511").First().value) : 0;
+                        level = spectrum != null ? (int)_rawFile.GetScanEventForScanNumber(scanNumber).MSOrder : 0;
 
                         if (spectrum != null && ParseInput.MsLevel.Contains(level)) //applying final MS filter
                         {
@@ -1233,16 +1258,7 @@ namespace ThermoRawFileParser.Writer
             };
 
             // Keep the CV params in a list and convert to array afterwards
-            var spectrumCvParams = new List<CVParamType>
-            {
-                new CVParamType
-                {
-                    name = "ms level",
-                    accession = "MS:1000511",
-                    value = msLevel.ToString(),
-                    cvRef = "MS"
-                }
-            };
+            var spectrumCvParams = new List<CVParamType>();
 
             // Trailer extra data list
             ScanTrailer trailerData;
@@ -1295,7 +1311,6 @@ namespace ThermoRawFileParser.Writer
                 ionInjectionTime);
             spectrum.scanList = scanListType;
 
-
             if (msLevel == 1)
             {
                 spectrumCvParams.Add(new CVParamType
@@ -1306,6 +1321,14 @@ namespace ThermoRawFileParser.Writer
                     value = ""
                 });
 
+                spectrumCvParams.Add(new CVParamType
+                {
+                    name = "ms level",
+                    accession = "MS:1000511",
+                    value = msLevel.ToString(),
+                    cvRef = "MS"
+                });
+
                 // Keep track of scan number for precursor reference
                 _precursorScanNumbers[""] = scanNumber;
                 _precursorTree[scanNumber] = new PrecursorInfo();
@@ -1314,12 +1337,20 @@ namespace ThermoRawFileParser.Writer
             else if (msLevel > 1)
             { 
                 spectrumCvParams.Add(new CVParamType
-                    {
+                {
                         accession = "MS:1000580",
                         cvRef = "MS",
                         name = "MSn spectrum",
                         value = ""
-                    });
+                });
+
+                spectrumCvParams.Add(new CVParamType
+                {
+                    name = "ms level",
+                    accession = "MS:1000511",
+                    value = msLevel.ToString(),
+                    cvRef = "MS"
+                });
 
                 // Keep track of scan number and isolation m/z for precursor reference                   
                 var result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
@@ -1392,6 +1423,114 @@ namespace ThermoRawFileParser.Writer
                     _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, 1, 0, new PrecursorType[0]);
 
                 }
+            }
+            else if (msLevel == (int)MSOrderType.Par)
+            {
+                spectrumCvParams.Add(new CVParamType
+                {
+                    accession = "MS:1000341",
+                    cvRef = "MS",
+                    name = "precursor ion spectrum",
+                    value = ""
+                });
+
+                // Keep track of scan number and isolation m/z for precursor reference                   
+                var result = _filterStringParentMzPattern.Match(scanEvent.ToString());
+                if (result.Success)
+                {
+                    if (_precursorScanNumbers.ContainsKey(result.Groups[1].Value))
+                    {
+                        _precursorScanNumbers.Remove(result.Groups[1].Value);
+                    }
+
+                    _precursorScanNumbers.Add(result.Groups[1].Value, scanNumber);
+                }
+
+                //update precursor scan if it is provided in trailer data
+                var trailerMasterScan = trailerData.AsPositiveInt("Master Scan Number:");
+                if (trailerMasterScan.HasValue)
+                {
+                    _precursorScanNumber = trailerMasterScan.Value;
+                }
+                else //try getting it from the scan filter
+                {
+                    _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
+                }
+
+                //finding precursor scan failed
+                if (_precursorScanNumber == -2 || !_precursorTree.ContainsKey(_precursorScanNumber))
+                {
+                    Log.Warn($"Cannot find precursor scan for scan# {scanNumber}");
+                    _precursorTree[_precursorScanNumber] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), new PrecursorType[0]);
+                    ParseInput.NewWarn();
+                }
+
+                try
+                {
+                    try //since there is no direct way to get the number of reactions available, it is necessary to try and fail
+                    {
+                        scanEvent.GetReaction(_precursorTree[_precursorScanNumber].ReactionCount);
+                    }
+                    catch (ArgumentOutOfRangeException ex)
+                    {
+                        Log.Debug($"Using Tribrid decision tree fix for scan# {scanNumber}");
+                        //Is it a decision tree scheduled scan on tribrid?
+                        if (msLevel == _precursorTree[_precursorScanNumber].MSLevel)
+                        {
+                            _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
+                        }
+                        else
+                        {
+                            throw new RawFileParserException(
+                                $"Tribrid decision tree fix failed - cannot get reaction# {_precursorTree[_precursorScanNumber].ReactionCount} from {scanEvent.ToString()}",
+                                ex);
+                        }
+                    }
+
+                    // Construct and set the precursor list element of the spectrum
+                    spectrum.precursorList =
+                        ConstructPrecursorList(_precursorScanNumber, scanEvent, charge, monoisotopicMz, isolationWidth,
+                            SPSMasses, out var reactionCount);
+
+                    //save precursor information for later reference
+                    _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, msLevel, reactionCount, spectrum.precursorList.precursor);
+                }
+                catch (Exception e)
+                {
+                    var extra = (e.InnerException is null) ? "" : $"\n{e.InnerException.StackTrace}";
+
+                    Log.Warn($"Failed creating precursor list for scan# {scanNumber} - precursor information for this and dependent scans will be empty\nException details:{e.Message}\n{e.StackTrace}\n{extra}");
+                    ParseInput.NewWarn();
+
+                    _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, 1, 0, new PrecursorType[0]);
+
+                }
+            }
+            else if (msLevel == (int)MSOrderType.Nl)
+            {
+                spectrumCvParams.Add(new CVParamType
+                {
+                    accession = "MS:1000326",
+                    cvRef = "MS",
+                    name = "constant neutral loss spectrum",
+                    value = ""
+                });
+                // Keep track of scan number for precursor reference
+                _precursorScanNumbers[""] = scanNumber;
+                _precursorTree[scanNumber] = new PrecursorInfo();
+            }
+            else if (msLevel == (int)MSOrderType.Ng)
+            {
+                spectrumCvParams.Add(new CVParamType
+                {
+                    accession = "MS:1000325",
+                    cvRef = "MS",
+                    name = "constant neutral gain spectrum",
+                    value = ""
+                });
+                // Keep track of scan number for precursor reference
+                _precursorScanNumbers[""] = scanNumber;
+                _precursorTree[scanNumber] = new PrecursorInfo();
             }
             else
             {

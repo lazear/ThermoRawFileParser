@@ -7,7 +7,7 @@ namespace ThermoRawFileParser
     public class ParseInput
     {
         // All MS levels
-        public static HashSet<int> AllLevels { get => new HashSet<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }; }
+        public static HashSet<int> AllLevels { get => new HashSet<int> { -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }; }
 
         /// <summary>
         /// The RAW file path.
