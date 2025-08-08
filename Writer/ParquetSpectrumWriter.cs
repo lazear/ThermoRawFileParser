@@ -1,9 +1,9 @@
-﻿using System;
+﻿using log4net;
+using Parquet.Serialization;
+using System;
 using System.Collections.Generic;
 using System.Reflection;
-using log4net;
-using Parquet.Serialization;
-using ThermoFisher.CommonCore.Data.Business;
+using System.Text.RegularExpressions;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
 using ThermoRawFileParser.Util;
@@ -168,18 +168,41 @@ namespace ThermoRawFileParser.Writer
                 mz = null
 
             };
-
             if (msLevel == 1)
             {
                 // Keep track of scan number for precursor reference
                 _precursorScanNumbers[""] = scanNumber;
                 _precursorTree[scanNumber] = new PrecursorInfo();
+
             }
-            else if (msLevel > 1)
+            else
             {
-                // Keep track of scan number and isolation m/z for precursor reference                   
-                var result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
-                if (result.Success)
+                Match result = null;
+
+                if (msLevel > 1)
+                {
+                    // Keep track of scan number and isolation m/z for precursor reference                   
+                    result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
+                }
+                else if (msLevel == (int)MSOrderType.Par)
+                {
+                    // Keep track of scan number and isolation m/z for precursor reference                   
+                    result = _filterStringParentMzPattern.Match(scanEvent.ToString());
+                }
+                else if (msLevel == (int)MSOrderType.Nl)
+                {
+                    //fill later if necessary
+                }
+                else if (msLevel == (int)MSOrderType.Ng)
+                {
+                    //fill later if necessary
+                }
+                else
+                {
+                    throw new ArgumentOutOfRangeException($"Unknown msLevel: {msLevel}");
+                }
+
+                if (result != null && result.Success)
                 {
                     if (_precursorScanNumbers.ContainsKey(result.Groups[1].Value))
                     {
@@ -197,17 +220,17 @@ namespace ThermoRawFileParser.Writer
                 }
                 else //try getting it from the scan filter
                 {
-                    precursor_scan = GetParentFromScanString(result.Groups[1].Value);
+                    precursor_scan = GetParentFromScanString(result == null ? "" : result.Groups[1].Value);
                 }
 
                 //finding precursor scan failed
-                if (precursor_scan == -2)
+                if (precursor_scan == -2 || !_precursorTree.ContainsKey(precursor_scan))
                 {
                     Log.Warn($"Cannot find precursor scan for scan# {scanNumber}");
-                    _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), null);
+                    _precursorTree[precursor_scan] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), null);
+                    ParseInput.NewWarn();
                 }
 
-                //Parsing the last reaction
                 try
                 {
                     try //since there is no direct way to get the number of reactions available, it is necessary to try and fail
@@ -232,7 +255,7 @@ namespace ThermoRawFileParser.Writer
 
                     // Get Precursor m/z and isolation window borders
                     precursor_data = GetPrecursorData(precursor_scan, scanEvent, trailer_mz, trailer_isolationWidth, out var reactionCount);
-
+                    
                     //save precursor information for later reference
                     _precursorTree[scanNumber] = new PrecursorInfo(precursor_scan, msLevel, reactionCount, null);
                 }
@@ -240,12 +263,12 @@ namespace ThermoRawFileParser.Writer
                 {
                     var extra = (e.InnerException is null) ? "" : $"\n{e.InnerException.StackTrace}";
 
-                    Log.Warn($"Could not get precursor data for scan# {scanNumber} - precursor information for this and dependent scans will be empty\nException details:{e.Message}\n{e.StackTrace}\n{extra}");
+                    Log.Warn($"Failed creating precursor list for scan# {scanNumber} - precursor information for this and dependent scans will be empty\nException details:{e.Message}\n{e.StackTrace}\n{extra}");
                     ParseInput.NewWarn();
 
                     _precursorTree[scanNumber] = new PrecursorInfo(precursor_scan, 1, 0, null);
-                }
 
+                }
             }
 
             MZData mzData;
@@ -290,7 +313,7 @@ namespace ThermoRawFileParser.Writer
                 MzParquet m;
                 m.rt = (float)rt;
                 m.scan = (uint)scanNumber;
-                m.level = (uint)msLevel;
+                m.level = msLevel > 0 ? (uint)msLevel: 0;
                 m.intensity = (float)mzData.intensities[i];
                 m.mz = (float)mzData.masses[i];
                 m.isolation_lower = precursor_data.isolation_lower;

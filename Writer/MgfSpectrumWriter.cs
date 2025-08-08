@@ -148,7 +148,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     precursorReference = ConstructSpectrumTitle((int)Device.MS, 1, _precursorScanNumber);
                 }
-                else
+                else if (ParseInput.MgfPrecursor)
                 {
                     Log.Error($"Cannot find precursor scan for scan# {scanNumber}");
                     _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), null);

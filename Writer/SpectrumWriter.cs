@@ -192,7 +192,19 @@ namespace ThermoRawFileParser.Writer
             try
             {
                 var order = (int)scanEvent.MSOrder;
-                reaction = scanEvent.GetReaction(order - 2);
+                if (order < 0)
+                {
+                    reaction = scanEvent.GetReaction(0);
+                }
+                else if (order > 1)
+                {
+                    reaction = scanEvent.GetReaction(order - 2);
+                }
+                else
+                {
+                    Log.Warn($"Attempting to get reaction for MS{order} scan# {scanNumber} failed");
+                }
+                    
             }
             catch (ArgumentOutOfRangeException)
             {
