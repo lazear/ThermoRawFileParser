@@ -13,7 +13,8 @@ namespace ThermoRawFileParser.Writer
     struct MzParquet
     {
         public uint scan;
-        public uint level;
+        public byte level;
+        public string scan_type;
         public float rt;
         public float mz;
         public float intensity;
@@ -141,6 +142,9 @@ namespace ThermoRawFileParser.Writer
             // Get Scan trailer
             ScanTrailer trailerData;
 
+            //Scan type
+            string scan_type;
+
             try
             {
                 trailerData = new ScanTrailer(raw.GetTrailerExtraInformation(scanNumber));
@@ -173,7 +177,15 @@ namespace ThermoRawFileParser.Writer
                 // Keep track of scan number for precursor reference
                 _precursorScanNumbers[""] = scanNumber;
                 _precursorTree[scanNumber] = new PrecursorInfo();
-
+                scan_type = "MS1 spectrum";
+            }
+            else if (msLevel == (int)MSOrderType.Nl)
+            {
+                scan_type = "constant neutral loss spectrum";
+            }
+            else if (msLevel == (int)MSOrderType.Ng)
+            {
+                scan_type = "constant neutral gain spectrum";
             }
             else
             {
@@ -183,20 +195,14 @@ namespace ThermoRawFileParser.Writer
                 {
                     // Keep track of scan number and isolation m/z for precursor reference                   
                     result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
+                    scan_type = "MSn spectrum";
                 }
                 else if (msLevel == (int)MSOrderType.Par)
                 {
                     // Keep track of scan number and isolation m/z for precursor reference                   
                     result = _filterStringParentMzPattern.Match(scanEvent.ToString());
-                }
-                else if (msLevel == (int)MSOrderType.Nl)
-                {
-                    //fill later if necessary
-                }
-                else if (msLevel == (int)MSOrderType.Ng)
-                {
-                    //fill later if necessary
-                }
+                    scan_type = "precursor ion spectrum";
+                }   
                 else
                 {
                     throw new ArgumentOutOfRangeException($"Unknown msLevel: {msLevel}");
@@ -253,7 +259,7 @@ namespace ThermoRawFileParser.Writer
                         }
                     }
 
-                    // Get Precursor m/z and isolation window borders
+                    // Get Precursor m/z and isolation window borders, exccept for 
                     precursor_data = GetPrecursorData(precursor_scan, scanEvent, trailer_mz, trailer_isolationWidth, out var reactionCount);
                     
                     //save precursor information for later reference
@@ -313,12 +319,13 @@ namespace ThermoRawFileParser.Writer
                 MzParquet m;
                 m.rt = (float)rt;
                 m.scan = (uint)scanNumber;
-                m.level = msLevel > 0 ? (uint)msLevel: 0;
+                m.scan_type = scan_type;
+                m.level = msLevel > 0 ? (byte)msLevel : (byte)2;
                 m.intensity = (float)mzData.intensities[i];
                 m.mz = (float)mzData.masses[i];
                 m.isolation_lower = precursor_data.isolation_lower;
                 m.isolation_upper = precursor_data.isolation_upper;
-                m.precursor_scan = precursor_scan;
+                m.precursor_scan = precursor_scan > 0? precursor_scan : 0;
                 m.precursor_mz = precursor_data.mz;
                 m.precursor_charge = (uint?)trailer_charge;
                 m.ion_mobility = (float?)FAIMSCV;

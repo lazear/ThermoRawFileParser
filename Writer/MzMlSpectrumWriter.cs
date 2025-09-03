@@ -1,4 +1,6 @@
-﻿using System;
+﻿using ComponentAce.Compression.Libs.zlib;
+using log4net;
+using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
@@ -10,14 +12,12 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Serialization;
-using log4net;
 using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
 using ThermoRawFileParser.Util;
 using ThermoRawFileParser.Writer.MzML;
-using ComponentAce.Compression.Libs.zlib;
 
 namespace ThermoRawFileParser.Writer
 {
@@ -1260,6 +1260,9 @@ namespace ThermoRawFileParser.Writer
             // Keep the CV params in a list and convert to array afterwards
             var spectrumCvParams = new List<CVParamType>();
 
+            // Keep user params in a list and convert to array afterwards
+            var spectrumUserParams = new List<UserParamType>();
+
             // Trailer extra data list
             ScanTrailer trailerData;
 
@@ -1426,45 +1429,76 @@ namespace ThermoRawFileParser.Writer
                     ParseInput.NewWarn();
                 }
 
-                try
+
+                if (msLevel == (int)MSOrderType.Ng)
                 {
-                    try //since there is no direct way to get the number of reactions available, it is necessary to try and fail
+                    // Neutral loss/gain spectra do not have precursor information
+                    spectrum.productList = ConstructProductList(scanNumber, scanEvent, out double neutralgain);
+                    spectrumUserParams.Add(new UserParamType
                     {
-                        scanEvent.GetReaction(_precursorTree[_precursorScanNumber].ReactionCount);
-                    }
-                    catch (ArgumentOutOfRangeException ex)
-                    {
-                        Log.Debug($"Using Tribrid decision tree fix for scan# {scanNumber}");
-                        //Is it a decision tree scheduled scan on tribrid?
-                        if (msLevel == _precursorTree[_precursorScanNumber].MSLevel)
-                        {
-                            _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
-                        }
-                        else
-                        {
-                            throw new RawFileParserException(
-                                $"Tribrid decision tree fix failed - cannot get reaction# {_precursorTree[_precursorScanNumber].ReactionCount} from {scanEvent.ToString()}",
-                                ex);
-                        }
-                    }
-
-                    // Construct and set the precursor list element of the spectrum
-                    spectrum.precursorList =
-                        ConstructPrecursorList(_precursorScanNumber, scanEvent, charge, monoisotopicMz, isolationWidth,
-                            SPSMasses, out var reactionCount);
-
-                    //save precursor information for later reference
-                    _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, msLevel, reactionCount, spectrum.precursorList.precursor);
+                        name = "neutral gain",
+                        type = "xsd:float",
+                        value = neutralgain.ToString(),
+                        unitAccession = "MS:1000040",
+                        unitCvRef = "MS",
+                        unitName = "m/z"
+                    });
                 }
-                catch (Exception e)
+                else if (msLevel == (int)MSOrderType.Nl)
                 {
-                    var extra = (e.InnerException is null) ? "" : $"\n{e.InnerException.StackTrace}";
+                    spectrum.productList = ConstructProductList(scanNumber, scanEvent, out double neutralloss);
+                    spectrumUserParams.Add(new UserParamType
+                    {
+                        name = "neutral loss",
+                        type = "xsd:float",
+                        value = neutralloss.ToString(),
+                        unitAccession = "MS:1000040",
+                        unitCvRef = "MS",
+                        unitName = "m/z"
+                    });
+                }
+                else
+                { 
+                    try
+                    {
+                        try //since there is no direct way to get the number of reactions available, it is necessary to try and fail
+                        {
+                            scanEvent.GetReaction(_precursorTree[_precursorScanNumber].ReactionCount);
+                        }
+                        catch (ArgumentOutOfRangeException ex)
+                        {
+                            Log.Debug($"Using Tribrid decision tree fix for scan# {scanNumber}");
+                            //Is it a decision tree scheduled scan on tribrid?
+                            if (msLevel == _precursorTree[_precursorScanNumber].MSLevel)
+                            {
+                                _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
+                            }
+                            else
+                            {
+                                throw new RawFileParserException(
+                                    $"Tribrid decision tree fix failed - cannot get reaction# {_precursorTree[_precursorScanNumber].ReactionCount} from {scanEvent.ToString()}",
+                                    ex);
+                            }
+                        }
 
-                    Log.Warn($"Failed creating precursor list for scan# {scanNumber} - precursor information for this and dependent scans will be empty\nException details:{e.Message}\n{e.StackTrace}\n{extra}");
-                    ParseInput.NewWarn();
+                        // Construct and set the precursor list element of the spectrum
+                        spectrum.precursorList =
+                            ConstructPrecursorList(_precursorScanNumber, scanEvent, charge, monoisotopicMz, isolationWidth,
+                                SPSMasses, out var reactionCount);
 
-                    _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, 1, 0, new PrecursorType[0]);
+                        //save precursor information for later reference
+                        _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, msLevel, reactionCount, spectrum.precursorList.precursor);
+                    }
+                    catch (Exception e)
+                    {
+                        var extra = (e.InnerException is null) ? "" : $"\n{e.InnerException.StackTrace}";
 
+                        Log.Warn($"Failed creating precursor list for scan# {scanNumber} - precursor information for this and dependent scans will be empty\nException details:{e.Message}\n{e.StackTrace}\n{extra}");
+                        ParseInput.NewWarn();
+
+                        _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, 1, 0, new PrecursorType[0]);
+
+                    }
                 }
             }
 
@@ -1641,6 +1675,8 @@ namespace ThermoRawFileParser.Writer
 
             // Add the CV params to the spectrum
             spectrum.cvParam = spectrumCvParams.ToArray();
+            // Add user params to the spectrum
+            spectrum.userParam = spectrumUserParams.ToArray();
 
             // Binary data array list
             var binaryData = new List<BinaryDataArrayType>();
@@ -2008,6 +2044,60 @@ namespace ThermoRawFileParser.Writer
 
             return spectrum;
         }
+
+        private ProductListType ConstructProductList(int scanNumber, IScanEvent scanEvent, out double neutral)
+        {
+            IReaction reaction = null;
+            
+            reaction = scanEvent.GetReaction(0);
+
+            double? isolationWidth = reaction.IsolationWidth;
+            if (isolationWidth < 0) isolationWidth = null;
+
+            neutral = reaction.PrecursorMass;
+
+            var product = new ProductType();
+
+            if (isolationWidth != null)
+            { 
+                product.isolationWindow =
+                    new ParamGroupType
+                    {
+                        cvParam = new CVParamType[2]
+                    };
+
+                var offset = isolationWidth.Value / 2 + reaction.IsolationWidthOffset;
+                product.isolationWindow.cvParam[0] =
+                    new CVParamType
+                    {
+                        accession = "MS:1000828",
+                        name = "isolation window lower offset",
+                        value = (isolationWidth.Value - offset).ToString(),
+                        cvRef = "MS",
+                        unitCvRef = "MS",
+                        unitAccession = "MS:1000040",
+                        unitName = "m/z"
+                    };
+                product.isolationWindow.cvParam[1] =
+                    new CVParamType
+                    {
+                        accession = "MS:1000829",
+                        name = "isolation window upper offset",
+                        value = offset.ToString(),
+                        cvRef = "MS",
+                        unitCvRef = "MS",
+                        unitAccession = "MS:1000040",
+                        unitName = "m/z"
+                    };
+            }
+
+            return new ProductListType
+            {
+                count = "1",
+                product = new ProductType[] { product }
+            };
+        }
+
         private SpectrumType ConstructPDASpectrum(int scanNumber, int instrumentNumber)
         {
             // Get each scan from the RAW file

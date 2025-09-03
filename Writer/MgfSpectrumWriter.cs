@@ -179,7 +179,8 @@ namespace ThermoRawFileParser.Writer
                 double? isolationWidth =
                     trailerData.AsDouble("MS" + msLevel + " Isolation Width:");
 
-                if (reaction != null)
+                if (reaction != null && !(msLevel == (int)MSOrderType.Nl || msLevel == (int)MSOrderType.Ng))
+                // Precursor m/z and intensity is not applicable for neutral loss and neutral gain scans
                 {
                     var selectedIonMz =
                         CalculateSelectedIonMz(reaction, monoisotopicMz, isolationWidth);
