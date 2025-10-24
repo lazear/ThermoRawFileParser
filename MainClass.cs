@@ -629,7 +629,7 @@ namespace ThermoRawFileParser
                 {
                     var helpMessage =
                         $"Usage is {Assembly.GetExecutingAssembly().GetName().Name}.exe [subcommand] [options]\noptional subcommands are xic|query (use [subcommand] -h for more info]):";
-                    ShowHelp(helpMessage, new OptionException(), optionSet);
+                    ShowHelp(helpMessage, null, optionSet);
                     return;
                 }
 

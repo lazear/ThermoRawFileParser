@@ -7,7 +7,7 @@ Supported formats:
 * mzML and indexed mzML
 * Apache Parquet
 
-Version before 1.5.0 require Mono to run on Linux and Mac.
+Version before 2.0.0 require Mono to run on Linux and Mac.
 
 As of version 1.2.0, 2 subcommands are available (shoutout to the [eubic 2020 developers meeting](https://eubic-ms.org/events/2020-developers-meeting/), see [usage](#usage) for examples):
 * query: returns one or more spectra in JSON PROXI by scan number(s)
@@ -64,17 +64,17 @@ When running framework-based version use `dotnet ThermoRawFileParser.dll` instea
 Usage is ThermoRawFileParser.exe [subcommand] [options]
 optional subcommands are xic|query (use [subcommand] -h for more info]):
   -h, --help                 Prints out the options.
-      --version              Prints out the version of the executable.
+  -v, --version              Prints out the version of the executable.
   -i, --input=VALUE          The raw file input (Required). Specify this or an
                                input directory -d.
   -d, --input_directory=VALUE
                              The directory containing the raw files (Required).
                                Specify this or an input raw file -i.
-  -b, --output=VALUE    	 The output file. Specify this or an output
+  -b, --output=VALUE         The output file. Specify this or an output
                                directory -o. Specifying neither writes to the
                                input directory.
   -o, --output_directory=VALUE
-							 The output directory. Specify this or an output
+                             The output directory. Specify this or an output
                                file -b. Specifying neither writes to the input
                                directory.
   -s, --stdout               Write to standard output. Cannot be combined with
