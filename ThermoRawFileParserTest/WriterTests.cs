@@ -2,15 +2,12 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.PeerToPeer.Collaboration;
 using System.Xml.Serialization;
 using IO.Mgf;
-using MzLibUtil;
 using NUnit.Framework;
+using Parquet;
 using ThermoRawFileParser;
-using ThermoRawFileParser.Writer;
 using ThermoRawFileParser.Writer.MzML;
-using UsefulProteomicsDatabases;
 
 namespace ThermoRawFileParserTest
 {
@@ -32,29 +29,29 @@ namespace ThermoRawFileParserTest
             //empty filename
             parseInput.OutputFormat = OutputFormat.MGF;
             RawFileParser.Parse(parseInput);
-            Assert.IsTrue(File.Exists(Path.Combine(tempFilePath, "small.mgf")));
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mgf")));
 
             parseInput.OutputFormat = OutputFormat.MzML;
             RawFileParser.Parse(parseInput);
-            Assert.IsTrue(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
             File.Delete(Path.Combine(tempFilePath, "small.mzML"));
 
             parseInput.OutputFormat = OutputFormat.IndexMzML;
             RawFileParser.Parse(parseInput);
-            Assert.IsTrue(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
 
             parseInput.Gzip = true;
             RawFileParser.Parse(parseInput);
-            Assert.IsTrue(File.Exists(Path.Combine(tempFilePath, "small.mzML.gz")));
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML.gz")));
             File.Delete(Path.Combine(tempFilePath, "small.mzML.gz"));
 
             parseInput.OutputFormat = OutputFormat.MGF;
             RawFileParser.Parse(parseInput);
-            Assert.IsTrue(File.Exists(Path.Combine(tempFilePath, "small.mgf.gz")));
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mgf.gz")));
 
             parseInput.OutputFormat = OutputFormat.MzML;
             RawFileParser.Parse(parseInput);
-            Assert.IsTrue(File.Exists(Path.Combine(tempFilePath, "small.mzML.gz")));
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML.gz")));
 
             Directory.Delete(tempFilePath, true);
         }
@@ -99,7 +96,7 @@ namespace ThermoRawFileParserTest
                 {
                     parseInput.OutputFormat = format;
                     RawFileParser.Parse(parseInput);
-                    Assert.IsTrue(File.Exists(Path.Combine(tempFilePath, expectedOutput)));
+                    Assert.That(File.Exists(Path.Combine(tempFilePath, expectedOutput)));
                     File.Delete(Path.Combine(tempFilePath, expectedOutput));
                 }
 
@@ -119,33 +116,48 @@ namespace ThermoRawFileParserTest
 
             RawFileParser.Parse(parseInput);
 
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
+
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mgf")));
             var mgfData = Mgf.LoadAllStaticData(Path.Combine(tempFilePath, "small.mgf"));
-            Assert.AreEqual(34, mgfData.NumSpectra);
+            Assert.That(mgfData.NumSpectra, Is.EqualTo(34));
+
+            File.Delete(Path.Combine(tempFilePath, "small.mgf"));
         }
 
         [Test]
         public void TestFolderMgfs()
         {
             // Get temp path for writing the test MGF
-            var tempFilePath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            var tempInPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            var tempOutPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
 
-            Directory.CreateDirectory(tempFilePath);
+            Directory.CreateDirectory(tempInPath);
+            Directory.CreateDirectory(tempOutPath);
 
-            var testRawFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/TestFolderMgfs");
-            var parseInput = new ParseInput(null, testRawFolder, tempFilePath, OutputFormat.MGF);
+            File.Copy(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small.RAW"), Path.Combine(tempInPath, "small.RAW"));
+            File.Copy(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small2.RAW"), Path.Combine(tempInPath, "small2.RAW"));
+            File.Create(Path.Combine(tempInPath, "Not_raw_file")).Close(); // Create an empty file to test handling of multiple files
+
+            var parseInput = new ParseInput(null, tempInPath, tempOutPath, OutputFormat.MGF);
 
             RawFileParser.Parse(parseInput);
 
-            var numFiles = Directory.GetFiles(tempFilePath, "*.mgf");
-            Assert.AreEqual(numFiles.Length, 2);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
 
-            var mgfData = Mgf.LoadAllStaticData(Path.Combine(tempFilePath, "small1.mgf"));
-            Assert.AreEqual(34, mgfData.NumSpectra);
+            var numFiles = Directory.GetFiles(tempOutPath, "*.mgf");
+            Assert.That(numFiles.Length, Is.EqualTo(2));
 
-            var mgfData2 = Mgf.LoadAllStaticData(Path.Combine(tempFilePath, "small2.mgf"));
-            Assert.AreEqual(34, mgfData2.NumSpectra);
+            var mgfData = Mgf.LoadAllStaticData(Path.Combine(tempOutPath, "small.mgf"));
+            Assert.That(mgfData.NumSpectra, Is.EqualTo(34));
 
-            Directory.Delete(tempFilePath, true);
+            var mgfData2 = Mgf.LoadAllStaticData(Path.Combine(tempOutPath, "small2.mgf"));
+            Assert.That(mgfData2.NumSpectra, Is.EqualTo(49));
+
+            Directory.Delete(tempInPath, true);
+            Directory.Delete(tempOutPath, true);
         }
 
         [Test]
@@ -159,18 +171,99 @@ namespace ThermoRawFileParserTest
 
             RawFileParser.Parse(parseInput);
 
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
+
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
             // Deserialize the mzML file
-            var xmlSerializer = new XmlSerializer(typeof(mzMLType));
-            var testMzMl = (mzMLType) xmlSerializer.Deserialize(new FileStream(
-                Path.Combine(tempFilePath, "small.mzML"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+            using (var fs = new FileStream(Path.Combine(tempFilePath, "small.mzML"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite))
+            {
+                var xmlSerializer = new XmlSerializer(typeof(mzMLType));
+                var testMzMl = (mzMLType)xmlSerializer.Deserialize(fs);
 
-            Assert.AreEqual("48", testMzMl.run.spectrumList.count);
-            Assert.AreEqual(48, testMzMl.run.spectrumList.spectrum.Length);
+                Assert.That(testMzMl.run.spectrumList.count, Is.EqualTo("48"));
+                Assert.That(testMzMl.run.spectrumList.spectrum.Length, Is.EqualTo(48));
 
-            Assert.AreEqual("1", testMzMl.run.chromatogramList.count);
-            Assert.AreEqual(1, testMzMl.run.chromatogramList.chromatogram.Length);
+                Assert.That(testMzMl.run.chromatogramList.count, Is.EqualTo("1"));
+                Assert.That(testMzMl.run.chromatogramList.chromatogram.Length, Is.EqualTo(1));
 
-            Assert.AreEqual(48, testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength);
+                Assert.That(testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength, Is.EqualTo(48));
+
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.count, Is.EqualTo("2"));
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Length, Is.EqualTo(2));
+                //test that the m/z array is present
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Any(a => a.cvParam.Any(c => c.accession == "MS:1000514")));
+                //test that the intensity array is present
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Any(a => a.cvParam.Any(c => c.accession == "MS:1000515")));
+            }
+
+            File.Delete(Path.Combine(tempFilePath, "small.mzML"));
+        }
+
+        [Test]
+        public void TestMzml_Charge()
+        {
+            // Get temp path for writing the test mzML
+            var tempFilePath = Path.GetTempPath();
+
+            var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small.RAW");
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.MzML);
+            parseInput.ChargeData = true;
+
+            RawFileParser.Parse(parseInput);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
+
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
+            // Deserialize the mzML file
+            using (var fs = new FileStream(Path.Combine(tempFilePath, "small.mzML"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite))
+            {
+                var xmlSerializer = new XmlSerializer(typeof(mzMLType));
+                var testMzMl = (mzMLType)xmlSerializer.Deserialize(fs);
+
+                //check that the charge array is present
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.count, Is.EqualTo("3"));
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Length, Is.EqualTo(3));
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Any(a => a.cvParam.Any(c => c.accession == "MS:1000516")));
+            }
+
+            File.Delete(Path.Combine(tempFilePath, "small.mzML"));
+        }
+
+        [Test]
+        public void TestMzml_Noise()
+        {
+            // Get temp path for writing the test mzML
+            var tempFilePath = Path.GetTempPath();
+
+            var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small.RAW");
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.MzML);
+            parseInput.NoiseData = true;
+
+            RawFileParser.Parse(parseInput);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
+
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
+            // Deserialize the mzML file
+            using (var fs = new FileStream(Path.Combine(tempFilePath, "small.mzML"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite))
+            {
+                var xmlSerializer = new XmlSerializer(typeof(mzMLType));
+                var testMzMl = (mzMLType)xmlSerializer.Deserialize(fs);
+
+                //check that the charge array is present
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.count, Is.EqualTo("5"));
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Length, Is.EqualTo(5));
+                // Check that the noise arrays are present
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Any(a => a.cvParam.Any(c => c.accession == "MS:1002745")));
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Any(a => a.cvParam.Any(c => c.accession == "MS:1002744")));
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].binaryDataArrayList.binaryDataArray.Any(a => a.cvParam.Any(c => c.accession == "MS:1002743")));
+            }
+
+            File.Delete(Path.Combine(tempFilePath, "small.mzML"));
         }
 
         [Test]
@@ -185,19 +278,29 @@ namespace ThermoRawFileParserTest
             parseInput.NoPeakPicking = new HashSet<int> { 1, 2 };
 
             RawFileParser.Parse(parseInput);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
 
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
             // Deserialize the mzML file
-            var xmlSerializer = new XmlSerializer(typeof(mzMLType));
-            var testMzMl = (mzMLType)xmlSerializer.Deserialize(new FileStream(
-                Path.Combine(tempFilePath, "small.mzML"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+            using (var fs = new FileStream(Path.Combine(tempFilePath, "small.mzML"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite))
+            {
+                var xmlSerializer = new XmlSerializer(typeof(mzMLType));
+                var testMzMl = (mzMLType)xmlSerializer.Deserialize(fs);
 
-            Assert.AreEqual("48", testMzMl.run.spectrumList.count);
-            Assert.AreEqual(48, testMzMl.run.spectrumList.spectrum.Length);
+                Assert.That(testMzMl.run.spectrumList.count, Is.EqualTo("48"));
+                Assert.That(testMzMl.run.spectrumList.spectrum.Length, Is.EqualTo(48));
+                // Check that the spectrum is profile
+                Assert.That(testMzMl.run.spectrumList.spectrum[0].cvParam.Any(c => c.accession == "MS:1000128"));
 
-            Assert.AreEqual("1", testMzMl.run.chromatogramList.count);
-            Assert.AreEqual(1, testMzMl.run.chromatogramList.chromatogram.Length);
+                Assert.That(testMzMl.run.chromatogramList.count, Is.EqualTo("1"));
+                Assert.That(testMzMl.run.chromatogramList.chromatogram.Length, Is.EqualTo(1));
 
-            Assert.AreEqual(48, testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength);
+                Assert.That(testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength, Is.EqualTo(48));
+            }
+
+            File.Delete(Path.Combine(tempFilePath, "small.mzML"));
         }
 
         [Test]
@@ -212,16 +315,24 @@ namespace ThermoRawFileParserTest
             parseInput.MsLevel = new HashSet<int> { 1 };
 
             RawFileParser.Parse(parseInput);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
 
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
             // Deserialize the mzML file
-            var xmlSerializer = new XmlSerializer(typeof(mzMLType));
-            var testMzMl = (mzMLType)xmlSerializer.Deserialize(new FileStream(
-                Path.Combine(tempFilePath, "small.mzML"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+            using (var fs = new FileStream(Path.Combine(tempFilePath, "small.mzML"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite))
+            {
+                var xmlSerializer = new XmlSerializer(typeof(mzMLType));
+                var testMzMl = (mzMLType)xmlSerializer.Deserialize(fs);
 
-            Assert.AreEqual("14", testMzMl.run.spectrumList.count);
-            Assert.AreEqual(14, testMzMl.run.spectrumList.spectrum.Length);
+                Assert.That(testMzMl.run.spectrumList.count, Is.EqualTo("14"));
+                Assert.That(testMzMl.run.spectrumList.spectrum.Length, Is.EqualTo(14));
 
-            Assert.AreEqual(48, testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength);
+                Assert.That(testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength, Is.EqualTo(48));
+            }
+
+            File.Delete(Path.Combine(tempFilePath, "small.mzML"));
         }
 
         [Test]
@@ -236,23 +347,31 @@ namespace ThermoRawFileParserTest
             var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.IndexMzML);
 
             RawFileParser.Parse(parseInput);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
 
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small.mzML")));
             // Deserialize the mzML file
-            var xmlSerializer = new XmlSerializer(typeof(indexedmzML));
-            var testMzMl = (indexedmzML) xmlSerializer.Deserialize(new FileStream(
-                Path.Combine(tempFilePath, "small.mzML"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+            using (var fs = new FileStream(Path.Combine(tempFilePath, "small.mzML"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite))
+            {
+                var xmlSerializer = new XmlSerializer(typeof(indexedmzML));
+                var testMzMl = (indexedmzML)xmlSerializer.Deserialize(fs);
 
-            Assert.AreEqual("48", testMzMl.mzML.run.spectrumList.count);
-            Assert.AreEqual(48, testMzMl.mzML.run.spectrumList.spectrum.Length);
+                Assert.That(testMzMl.mzML.run.spectrumList.count, Is.EqualTo("48"));
+                Assert.That(testMzMl.mzML.run.spectrumList.spectrum.Length, Is.EqualTo(48));
 
-            Assert.AreEqual("1", testMzMl.mzML.run.chromatogramList.count);
-            Assert.AreEqual(1, testMzMl.mzML.run.chromatogramList.chromatogram.Length);
+                Assert.That(testMzMl.mzML.run.chromatogramList.count, Is.EqualTo("1"));
+                Assert.That(testMzMl.mzML.run.chromatogramList.chromatogram.Length, Is.EqualTo(1));
 
-            Assert.AreEqual(2, testMzMl.indexList.index.Length);
-            Assert.AreEqual("spectrum", testMzMl.indexList.index[0].name.ToString());
-            Assert.AreEqual(48, testMzMl.indexList.index[0].offset.Length);
-            Assert.AreEqual("chromatogram", testMzMl.indexList.index[1].name.ToString());
-            Assert.AreEqual(1, testMzMl.indexList.index[1].offset.Length);
+                Assert.That(testMzMl.indexList.index.Length, Is.EqualTo(2));
+                Assert.That(testMzMl.indexList.index[0].name.ToString(), Is.EqualTo("spectrum"));
+                Assert.That(testMzMl.indexList.index[0].offset.Length, Is.EqualTo(48));
+                Assert.That(testMzMl.indexList.index[1].name.ToString(), Is.EqualTo("chromatogram"));
+                Assert.That(testMzMl.indexList.index[1].offset.Length, Is.EqualTo(1));
+            }
+
+            File.Delete(Path.Combine(tempFilePath, "small.mzML"));
         }
 
         [Test]
@@ -265,25 +384,96 @@ namespace ThermoRawFileParserTest
             var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.MzML);
 
             RawFileParser.Parse(parseInput);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
 
+            Assert.That(File.Exists(Path.Combine(tempFilePath, "small2.mzML")));
             // Deserialize the mzML file
-            var xmlSerializer = new XmlSerializer(typeof(mzMLType));
-            var testMzMl = (mzMLType)xmlSerializer.Deserialize(new FileStream(
-                Path.Combine(tempFilePath, "small2.mzML"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
+            using (var fs = new FileStream(Path.Combine(tempFilePath, "small2.mzML"), FileMode.Open,
+                FileAccess.Read, FileShare.ReadWrite))
+            {
+                var xmlSerializer = new XmlSerializer(typeof(mzMLType));
+                var testMzMl = (mzMLType)xmlSerializer.Deserialize(fs);
 
-            Assert.AreEqual(95, testMzMl.run.spectrumList.spectrum.Length);
+                Assert.That(testMzMl.run.spectrumList.spectrum.Length, Is.EqualTo(95));
 
-            var precursor = testMzMl.run.spectrumList.spectrum[16].precursorList.precursor[0].selectedIonList.selectedIon[0];
-            var selectedMz = Double.Parse(precursor.cvParam.Where(cv => cv.accession == "MS:1000744").First().value);
-            Assert.IsTrue(selectedMz - 604.7592 < 0.001);
+                var precursor = testMzMl.run.spectrumList.spectrum[16].precursorList.precursor[0].selectedIonList.selectedIon[0];
+                var selectedMz = Double.Parse(precursor.cvParam.Where(cv => cv.accession == "MS:1000744").First().value);
+                Assert.That(selectedMz - 604.7592 < 0.001);
 
-            var selectedZ = int.Parse(precursor.cvParam.Where(cv => cv.accession == "MS:1000041").First().value);
-            Assert.AreEqual(selectedZ , 2);
+                var selectedZ = int.Parse(precursor.cvParam.Where(cv => cv.accession == "MS:1000041").First().value);
+                Assert.That(selectedZ, Is.EqualTo(2));
 
-            //var selectedI = Double.Parse(precursor.cvParam.Where(cv => cv.accession == "MS:1000042").First().value);
-            //Assert.IsTrue(selectedI - 10073 < 1);
+                var selectedI = Double.Parse(precursor.cvParam.Where(cv => cv.accession == "MS:1000042").First().value);
+                Assert.That(selectedI - 17044 < 1);
 
-            Assert.AreEqual(95, testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength);
+                Assert.That(testMzMl.run.chromatogramList.chromatogram[0].defaultArrayLength, Is.EqualTo(95));
+            }
+
+            File.Delete(Path.Combine(tempFilePath, "small2.mzML"));
+        }
+
+        [Test]
+        public void TestParquetCentroid()
+        {
+            // Get temp path for writing the test output
+            var tempFilePath = Path.GetTempPath();
+
+            var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small.RAW");
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.Parquet);
+
+            RawFileParser.Parse(parseInput);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
+
+            // Actual test
+            var parquetFilePath = Path.Combine(tempFilePath, "small.mzparquet");
+
+            Assert.That(File.Exists(parquetFilePath));
+            using (var parquetReader = ParquetReader.CreateAsync(parquetFilePath).Result)
+            {
+                var groupReader = parquetReader.OpenRowGroupReader(0);
+                var schema = parquetReader.Schema;
+                var scanColumn = groupReader.ReadColumnAsync(schema.FindDataField("scan")).Result;
+
+                Assert.That(scanColumn.NumValues, Is.EqualTo(48520));
+                Assert.That(scanColumn.Statistics.DistinctCount, Is.EqualTo(48));
+                Assert.That((from int p in scanColumn.Data where p == 22 select p).Count(), Is.EqualTo(1632));
+            }
+
+            File.Delete(parquetFilePath);
+        }
+
+        [Test]
+        public void TestParquetProfile()
+        {
+            // Get temp path for writing the test mzML
+            var tempFilePath = Path.GetTempPath();
+
+            var testRawFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"Data/small.RAW");
+            var parseInput = new ParseInput(testRawFile, null, tempFilePath, OutputFormat.Parquet);
+            parseInput.NoPeakPicking = new HashSet<int> { 1, 2 };
+
+            RawFileParser.Parse(parseInput);
+            Assert.That(parseInput.Errors, Is.EqualTo(0));
+            Assert.That(parseInput.Warnings, Is.EqualTo(0));
+
+            // Actual test
+            var parquetFilePath = Path.Combine(tempFilePath, "small.mzparquet");
+
+            Assert.That(File.Exists(parquetFilePath));
+            using (var parquetReader = ParquetReader.CreateAsync(parquetFilePath).Result)
+            {
+                var groupReader = parquetReader.OpenRowGroupReader(0);
+                var schema = parquetReader.Schema;
+                var scanColumn = groupReader.ReadColumnAsync(schema.FindDataField("scan")).Result;
+
+                Assert.That(scanColumn.NumValues, Is.EqualTo(305213));
+                Assert.That(scanColumn.Statistics.DistinctCount, Is.EqualTo(48));
+                Assert.That((from int p in scanColumn.Data where p == 22 select p).Count(), Is.EqualTo(17758));
+            }
+
+            File.Delete(parquetFilePath);
         }
     }
 }

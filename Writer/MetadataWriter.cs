@@ -25,7 +25,7 @@ namespace ThermoRawFileParser.Writer
         private double maxMz = 0;
         private double minCharge = 100000000000000;
         private double maxCharge = 0;
-        private readonly Dictionary<string, int> msTypes = new Dictionary<string, int>();
+        private Dictionary<MSOrderType, int> msLevels = new Dictionary<MSOrderType, int>();
         private readonly ICollection<CVTerm> fragmentationTypes = new HashSet<CVTerm>(CVTerm.CvTermComparer);
 
         /// <summary>
@@ -57,14 +57,9 @@ namespace ThermoRawFileParser.Writer
                     // Get the scan event for this scan number
                     var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
 
-                    // Keep track of the number of MS<MS level> spectra
-                    if (msTypes.ContainsKey(scanFilter.MSOrder.ToString()))
-                    {
-                        msTypes[scanFilter.MSOrder.ToString()] += 1;
-                    }
-                    else
-                        msTypes.Add(scanFilter.MSOrder.ToString(), 1);
-
+                    // Get MS levels
+                    msLevels = WriterUtil.CountScanOrder(rawFile);
+                    
                     if (time > maxTime)
                         maxTime = time;
                     if (time < minTime)
@@ -174,22 +169,17 @@ namespace ThermoRawFileParser.Writer
                         rawFile.GetInstrumentData().HardwareVersion));
                 }
 
-
-
                 // MS Data
-                foreach (KeyValuePair<string, int> entry in msTypes)
-                {
-                    if (entry.Key.Equals(MSOrderType.Ms.ToString()))
-                        metadata.addMSData(new CVTerm("PRIDE:0000481", "PRIDE", "Number of MS1 spectra",
-                            entry.Value.ToString()));
-                    if (entry.Key.Equals(MSOrderType.Ms2.ToString()))
-                        metadata.addMSData(new CVTerm("PRIDE:0000482", "PRIDE", "Number of MS2 spectra",
-                            entry.Value.ToString()));
-                    if (entry.Key.Equals(MSOrderType.Ms3.ToString()))
-                        metadata.addMSData(new CVTerm("PRIDE:0000483", "PRIDE", "Number of MS3 spectra",
-                            entry.Value.ToString()));
-                }
-
+                if (msLevels[MSOrderType.Ms] > 0)
+                    metadata.addMSData(new CVTerm("PRIDE:0000481", "PRIDE", "Number of MS1 spectra",
+                        msLevels[MSOrderType.Ms].ToString()));
+                if (msLevels[MSOrderType.Ms2] > 0)
+                    metadata.addMSData(new CVTerm("PRIDE:0000482", "PRIDE", "Number of MS1 spectra",
+                        msLevels[MSOrderType.Ms2].ToString()));
+                if (msLevels[MSOrderType.Ms3] > 0)
+                    metadata.addMSData(new CVTerm("PRIDE:0000483", "PRIDE", "Number of MS1 spectra",
+                        msLevels[MSOrderType.Ms3].ToString()));
+                
                 metadata.addMSData(new CVTerm("PRIDE:0000472", "PRIDE", "MS min charge",
                     minCharge.ToString(CultureInfo.InvariantCulture)));
                 metadata.addMSData(new CVTerm("PRIDE:0000473", "PRIDE", "MS max charge",
@@ -369,16 +359,14 @@ namespace ThermoRawFileParser.Writer
                 }
 
                 // MS Data
+                //TODO other MS levels??
                 output.Add("#MsData");
-                foreach (KeyValuePair<string, int> entry in msTypes)
-                {
-                    if (entry.Key.Equals(MSOrderType.Ms.ToString()))
-                        output.Add("Number of MS1 spectra=" + entry.Value);
-                    if (entry.Key.Equals(MSOrderType.Ms2.ToString()))
-                        output.Add("Number of MS2 spectra=" + entry.Value);
-                    if (entry.Key.Equals(MSOrderType.Ms3.ToString()))
-                        output.Add("Number of MS3 spectra=" + entry.Value);
-                }
+                if (msLevels[MSOrderType.Ms] > 0)
+                    output.Add("Number of MS1 spectra=" + msLevels[MSOrderType.Ms]);
+                if (msLevels[MSOrderType.Ms2] > 0)
+                    output.Add("Number of MS2 spectra=" + msLevels[MSOrderType.Ms2]);
+                if (msLevels[MSOrderType.Ms3] > 0)
+                    output.Add("Number of MS3 spectra=" + msLevels[MSOrderType.Ms3]);
 
                 output.AddRange(new List<string>
                 {

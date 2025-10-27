@@ -1,0 +1,78 @@
+name: publish
+
+on:
+  release:
+    types: 'published'
+  
+jobs:
+  publish:
+    
+    runs-on: 'ubuntu-latest'
+    
+    steps:    
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        path: 'main'
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    
+    - name: Get Thermo packages
+      uses: actions/checkout@v4
+      with:
+        repository: 'thermofisherlsms/RawFileReader'
+        path: 'ThermoPKG'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        sparse-checkout: 'Libs/NetCore/Net8/*.nupkg'
+        sparse-checkout-cone-mode: 'false'
+    
+    - name: Add Thermo packages as NuGet source
+      run: |
+        dotnet nuget add source -n ThermoPKG `pwd`/ThermoPKG/Libs/NetCore/Net8
+        
+    - name: Publish all and zip artifacts
+      run: |
+        dotnet publish --configuration Release --runtime linux-x64 main/ThermoRawFileParser.csproj --sc -o publish/linux-x64
+        dotnet publish --configuration Release --runtime win-x64 main/ThermoRawFileParser.csproj --sc -o publish/win-x64
+        dotnet publish --configuration Release --runtime osx-x64 main/ThermoRawFileParser.csproj --sc -o publish/osx-x64
+        dotnet publish --configuration Release --framework net8.0 main/ThermoRawFileParser.csproj -o publish/net8
+        cd publish/linux-x64
+        zip -r -q ThermoRawFileParser-${{ github.ref_name }}-linux.zip *
+        cd ../win-x64
+        zip -r -q ThermoRawFileParser-${{ github.ref_name }}-win.zip *
+        cd ../osx-x64
+        zip -r -q ThermoRawFileParser-${{ github.ref_name }}-osx.zip *
+        cd ../net8
+        zip -r -q ThermoRawFileParser-${{ github.ref_name }}-net8.zip *
+        
+    - name: Upload Linux to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: publish/linux-x64/ThermoRawFileParser-${{ github.ref_name }}-linux.zip
+        tag: ${{ github.ref }}
+        
+    - name: Upload OSX to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: publish/osx-x64/ThermoRawFileParser-${{ github.ref_name }}-osx.zip
+        tag: ${{ github.ref }}
+        
+    - name: Upload Windows to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: publish/win-x64/ThermoRawFileParser-${{ github.ref_name }}-win.zip
+        tag: ${{ github.ref }}
+        
+    - name: Upload framework-based to release
+      uses: svenstaro/upload-release-action@v2
+      with:
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: publish/net8/ThermoRawFileParser-${{ github.ref_name }}-net8.zip
+        tag: ${{ github.ref }}
+    

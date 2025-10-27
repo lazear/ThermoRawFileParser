@@ -7,7 +7,7 @@ namespace ThermoRawFileParser
     public class ParseInput
     {
         // All MS levels
-        public static HashSet<int> AllLevels { get => new HashSet<int> { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }; }
+        public static HashSet<int> AllLevels { get => new HashSet<int> { -3, -2, -1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }; }
 
         /// <summary>
         /// The RAW file path.
@@ -102,6 +102,8 @@ namespace ThermoRawFileParser
 
         public bool NoiseData { get; set; }
 
+        public bool ChargeData { get; set; }
+
         public bool StdOut { get; set; }
 
         public bool Vigilant { get; set; }
@@ -135,6 +137,7 @@ namespace ThermoRawFileParser
             MgfPrecursor = false;
             StdOut = false;
             NoiseData = false;
+            ChargeData = false;
             Vigilant = false;
             _errors = 0;
             _warnings = 0;
@@ -148,7 +151,6 @@ namespace ThermoRawFileParser
             RawDirectoryPath = rawDirectoryPath;
             OutputDirectory = outputDirectory;
             OutputFormat = outputFormat;
-            MgfPrecursor = true;
         }
 
         public void InitializeS3Bucket()

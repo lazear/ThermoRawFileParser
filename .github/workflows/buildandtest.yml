@@ -1,0 +1,46 @@
+name: buildtest
+
+on:
+  push:
+    paths:
+      - '**.cs'
+      - '.github/workflows/*.yml'
+  pull_request:
+    paths:
+      - '**.cs'
+      - '.github/workflows/*.yml'
+
+jobs:
+  buildandtest:
+
+    runs-on: 'ubuntu-latest'
+    
+    steps:
+    - uses: actions/checkout@v4    
+      with:
+        path: 'main'
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+    
+    - name: Get Thermo packages
+      uses: actions/checkout@v4
+      with:
+        repository: 'thermofisherlsms/RawFileReader'
+        path: 'ThermoPKG'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        sparse-checkout: 'Libs/NetCore/Net8/*.nupkg'
+        sparse-checkout-cone-mode: 'false'       
+    
+    - name: Add Thermo packages as NuGet source
+      run: |
+        dotnet nuget add source -n ThermoPKG `pwd`/ThermoPKG/Libs/NetCore/Net8
+        
+    - name: Build and test
+      run: |
+        cd main
+        dotnet build .
+        dotnet test .     
+    

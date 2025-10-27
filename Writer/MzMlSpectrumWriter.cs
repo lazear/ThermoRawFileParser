@@ -1,7 +1,8 @@
-﻿using System;
+﻿using ComponentAce.Compression.Libs.zlib;
+using log4net;
+using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -11,14 +12,12 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Serialization;
-using log4net;
 using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
 using ThermoFisher.CommonCore.Data.Interfaces;
 using ThermoRawFileParser.Util;
 using ThermoRawFileParser.Writer.MzML;
-using zlib;
 
 namespace ThermoRawFileParser.Writer
 {
@@ -26,8 +25,6 @@ namespace ThermoRawFileParser.Writer
     {
         private static readonly ILog Log =
             LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
-
-        private readonly Regex _filterStringIsolationMzPattern = new Regex(@"ms\d+ (.+?) \[");
 
         // Tune version < 3 produces multiple trailer entry like "SPS Mass [number]"
         private readonly Regex _spSentry = new Regex(@"SPS Mass\s+\d+:");
@@ -44,12 +41,6 @@ namespace ThermoRawFileParser.Writer
         // Dictionary to keep track of the different ionization modes (key: Thermo IonizationModeType; value: the reference string)
         private readonly Dictionary<IonizationModeType, CVParamType> _ionizationTypes =
             new Dictionary<IonizationModeType, CVParamType>();
-
-        // Precursor scan number (value) and isolation m/z (key) for reference in the precursor element of an MSn spectrum
-        private readonly Dictionary<string, int> _precursorScanNumbers = new Dictionary<string, int>();
-
-        //Precursor information for scans
-        private Dictionary<int, PrecursorInfo> _precursorTree = new Dictionary<int, PrecursorInfo>();
 
         private const string SourceFileId = "RAW1";
         private readonly XmlSerializerFactory _factory = new XmlSerializerFactory();
@@ -68,8 +59,6 @@ namespace ThermoRawFileParser.Writer
             _mzMlNamespace.Add(string.Empty, "http://psi.hupo.org/ms/mzml");
             _doIndexing = ParseInput.OutputFormat == OutputFormat.IndexMzML;
             _osOffset = Environment.NewLine == "\n" ? 0 : 1;
-            _precursorScanNumbers[""] = -1;
-            _precursorTree[-1] = new PrecursorInfo();
         }
 
         /// <inheritdoc />
@@ -126,7 +115,7 @@ namespace ThermoRawFileParser.Writer
                     URI = @"https://raw.githubusercontent.com/HUPO-PSI/psi-ms-CV/master/psi-ms.obo",
                     fullName = "Mass spectrometry ontology",
                     id = "MS",
-                    version = "4.1.79"
+                    version = "4.1.204"
                 });
                 Serialize(serializer, new CVType
                 {
@@ -148,10 +137,11 @@ namespace ThermoRawFileParser.Writer
 
                 if (_rawFile.HasMsData)
                 {
-                    var nMS1 = rawFile.GetFilteredScanEnumerator("ms").Count();
-                    var nMS = rawFile.RunHeaderEx.SpectraCount;
+                    var scanCounts = WriterUtil.CountScanOrder(_rawFile);
+                    //Sum all scans with MSOrder > 1
+                    int nMSn = scanCounts.Sum(o => (int)o.Key > 1 ? o.Value : 0);
                     // MS1
-                    if(ParseInput.MsLevel.Contains(1) && nMS1 > 0)
+                    if (ParseInput.MsLevel.Contains(1) && scanCounts[MSOrderType.Ms] > 0)
                     content.Add(new CVParamType
                     {
                         accession = "MS:1000579",
@@ -160,7 +150,7 @@ namespace ThermoRawFileParser.Writer
                         value = ""
                     });
                     // MSn
-                    if(ParseInput.MsLevel.Any(n => n > 1) && nMS > nMS1)
+                    if(ParseInput.MsLevel.Any(n => n > 1) && nMSn > 0)
                     content.Add(new CVParamType
                     {
                         accession = "MS:1000580",
@@ -168,6 +158,30 @@ namespace ThermoRawFileParser.Writer
                         cvRef = "MS",
                         value = ""
                     });
+                    if (scanCounts[MSOrderType.Par] > 0)
+                        content.Add(new CVParamType
+                        {
+                            accession = "MS:1000341",
+                            name = "precursor ion spectrum",
+                            cvRef = "MS",
+                            value = ""
+                        });
+                    if (scanCounts[MSOrderType.Nl] > 0)
+                        content.Add(new CVParamType
+                        {
+                            accession = "MS:1000326",
+                            name = "constant neutral loss spectrum",
+                            cvRef = "MS",
+                            value = ""
+                        });
+                    if (scanCounts[MSOrderType.Ng] > 0)
+                        content.Add(new CVParamType
+                        {
+                            accession = "MS:1000325",
+                            name = "constant neutral gain spectrum",
+                            cvRef = "MS",
+                            value = ""
+                        });
                     // Ion current chromatogram
                     content.Add(OntologyMapping.GetChromatogramType("current"));
                 }
@@ -413,11 +427,12 @@ namespace ThermoRawFileParser.Writer
                         }
                         catch (Exception ex)
                         {
-                            Log.Error($"Scan #{scanNumber} cannot be processed because of the following exception: {ex.Message}\n{ex.StackTrace}");
+                            Log.Error($"Scan #{scanNumber} cannot be processed because of the following exception: {ex.Message}");
+                            Log.Debug($"{ex.StackTrace}\n{ex.InnerException}");
                             ParseInput.NewError();
                         }
 
-                        level = spectrum != null ? int.Parse(spectrum.cvParam.Where(p => p.accession == "MS:1000511").First().value) : 0;
+                        level = spectrum != null ? (int)_rawFile.GetScanEventForScanNumber(scanNumber).MSOrder : 0;
 
                         if (spectrum != null && ParseInput.MsLevel.Contains(level)) //applying final MS filter
                         {
@@ -486,7 +501,8 @@ namespace ThermoRawFileParser.Writer
                             }
                             catch (Exception ex)
                             {
-                                Log.Error($"Scan #{scanNumber} cannot be processed because of the following exception: {ex.Message}\n{ex.StackTrace}");
+                                Log.Error($"Scan #{scanNumber} cannot be processed because of the following exception: {ex.Message}");
+                                Log.Debug($"{ex.StackTrace}\n{ex.InnerException}");
                                 ParseInput.NewError();
                             }
 
@@ -639,7 +655,6 @@ namespace ThermoRawFileParser.Writer
 
                     _writer.WriteValue(BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant());
                     _writer.WriteEndElement(); // fileChecksum
-
                     _writer.WriteEndElement(); // indexedmzML                                           
                 }
 
@@ -652,20 +667,6 @@ namespace ThermoRawFileParser.Writer
 
                 Writer.Flush();
                 Writer.Close();
-
-                if (_doIndexing)
-                {
-                    try
-                    {
-                        cryptoStream.Flush();
-                        cryptoStream.Close();
-                    }
-                    catch (System.ObjectDisposedException e)
-                    {
-                        // Cannot access a closed file.  CryptoStream was already closed when closing _writer
-                        Log.Warn($"Warning: {e.Message}");
-                    }
-                }
             }
 
             // In case of indexed mzML, change the extension from xml to mzML and check for the gzip option
@@ -1124,7 +1125,7 @@ namespace ThermoRawFileParser.Writer
                     };
                 timesBinaryData.encodedLength =
                     (4 * Math.Ceiling((double) timesBinaryData
-                        .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                        .binary.Length / 3)).ToString();
                 var timesBinaryDataCvParams = new List<CVParamType>
                 {
                     OntologyMapping.GetDataArrayType("time"),
@@ -1180,7 +1181,7 @@ namespace ThermoRawFileParser.Writer
                     };
                 intensitiesBinaryData.encodedLength =
                     (4 * Math.Ceiling((double) intensitiesBinaryData
-                        .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                        .binary.Length / 3)).ToString();
                 var intensitiesBinaryDataCvParams = new List<CVParamType>
                 {
                     intensityType,
@@ -1239,8 +1240,8 @@ namespace ThermoRawFileParser.Writer
             // Last precursor scan number for use in MSn spectrum
             int _precursorScanNumber = 0;
 
-            // Get each scan from the RAW file
-            var scan = Scan.FromFile(_rawFile, scanNumber);
+            //General scan information
+            var scanStats = _rawFile.GetScanStatsForScanNumber(scanNumber);
 
             // Get the scan filter for this scan number
             var scanFilter = _rawFile.GetFilterForScanNumber(scanNumber);
@@ -1252,21 +1253,15 @@ namespace ThermoRawFileParser.Writer
             var scanEvent = _rawFile.GetScanEventForScanNumber(scanNumber);
             var spectrum = new SpectrumType
             {
-                id = ConstructSpectrumTitle((int) Device.MS, 1, scanNumber),
+                id = ConstructSpectrumTitle((int)Device.MS, 1, scanNumber),
                 defaultArrayLength = 0
             };
 
             // Keep the CV params in a list and convert to array afterwards
-            var spectrumCvParams = new List<CVParamType>
-            {
-                new CVParamType
-                {
-                    name = "ms level",
-                    accession = "MS:1000511",
-                    value = msLevel.ToString(),
-                    cvRef = "MS"
-                }
-            };
+            var spectrumCvParams = new List<CVParamType>();
+
+            // Keep user params in a list and convert to array afterwards
+            var spectrumUserParams = new List<UserParamType>();
 
             // Trailer extra data list
             ScanTrailer trailerData;
@@ -1285,7 +1280,7 @@ namespace ThermoRawFileParser.Writer
             int? charge = trailerData.AsPositiveInt("Charge State:");
             double? monoisotopicMz = trailerData.AsDouble("Monoisotopic M/Z:");
             double? ionInjectionTime = trailerData.AsDouble("Ion Injection Time (ms):");
-            double? isolationWidth = trailerData.AsDouble("MS" + (int) scanFilter.MSOrder + " Isolation Width:");
+            double? isolationWidth = trailerData.AsDouble("MS" + msLevel + " Isolation Width:");
             double? FAIMSCV = null;
             if (trailerData.AsBool("FAIMS Voltage On:").GetValueOrDefault(false))
                 FAIMSCV = trailerData.AsDouble("FAIMS CV:");
@@ -1297,7 +1292,7 @@ namespace ThermoRawFileParser.Writer
                 foreach (var label in trailerData.MatchKeys(_spSentry))
                 {
                     var mass = trailerData.AsDouble(label).GetValueOrDefault(0);
-                    if (mass > 0) SPSMasses.Add((double) mass); //zero means mass does not exist
+                    if (mass > 0) SPSMasses.Add((double)mass); //zero means mass does not exist
                 }
             }
 
@@ -1307,7 +1302,7 @@ namespace ThermoRawFileParser.Writer
                 foreach (var labelvalue in trailerData.MatchValues(_spSentry3))
                 {
                     foreach (var mass in labelvalue.Trim()
-                        .Split(new char[] {','}, StringSplitOptions.RemoveEmptyEntries))
+                        .Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
                     {
                         SPSMasses.Add(double.Parse(mass));
                     }
@@ -1315,10 +1310,9 @@ namespace ThermoRawFileParser.Writer
             }
 
             // Construct and set the scan list element of the spectrum
-            var scanListType = ConstructScanList(scanNumber, scan, scanFilter, scanEvent, monoisotopicMz,
+            var scanListType = ConstructScanList(scanNumber, scanStats, scanFilter, scanEvent, monoisotopicMz,
                 ionInjectionTime);
             spectrum.scanList = scanListType;
-
 
             if (msLevel == 1)
             {
@@ -1330,14 +1324,26 @@ namespace ThermoRawFileParser.Writer
                     value = ""
                 });
 
+                spectrumCvParams.Add(new CVParamType
+                {
+                    name = "ms level",
+                    accession = "MS:1000511",
+                    value = msLevel.ToString(),
+                    cvRef = "MS"
+                });
+
                 // Keep track of scan number for precursor reference
                 _precursorScanNumbers[""] = scanNumber;
                 _precursorTree[scanNumber] = new PrecursorInfo();
 
             }
-            else if (msLevel > 1)
-            { 
-                spectrumCvParams.Add(new CVParamType
+            else
+            {
+                Match result = null;
+
+                if (msLevel > 1)
+                {
+                    spectrumCvParams.Add(new CVParamType
                     {
                         accession = "MS:1000580",
                         cvRef = "MS",
@@ -1345,9 +1351,56 @@ namespace ThermoRawFileParser.Writer
                         value = ""
                     });
 
-                // Keep track of scan number and isolation m/z for precursor reference                   
-                var result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
-                if (result.Success)
+                    spectrumCvParams.Add(new CVParamType
+                    {
+                        name = "ms level",
+                        accession = "MS:1000511",
+                        value = msLevel.ToString(),
+                        cvRef = "MS"
+                    });
+
+                    // Keep track of scan number and isolation m/z for precursor reference                   
+                    result = _filterStringIsolationMzPattern.Match(scanEvent.ToString());
+                }
+                else if (msLevel == (int)MSOrderType.Par)
+                {
+                    spectrumCvParams.Add(new CVParamType
+                    {
+                        accession = "MS:1000341",
+                        cvRef = "MS",
+                        name = "precursor ion spectrum",
+                        value = ""
+                    });
+
+                    // Keep track of scan number and isolation m/z for precursor reference                   
+                    result = _filterStringParentMzPattern.Match(scanEvent.ToString());
+                }
+                else if (msLevel == (int)MSOrderType.Nl)
+                {
+                    spectrumCvParams.Add(new CVParamType
+                    {
+                        accession = "MS:1000326",
+                        cvRef = "MS",
+                        name = "constant neutral loss spectrum",
+                        value = ""
+                    });
+                }
+                else if (msLevel == (int)MSOrderType.Ng)
+                {
+                    spectrumCvParams.Add(new CVParamType
+                    {
+                        accession = "MS:1000325",
+                        cvRef = "MS",
+                        name = "constant neutral gain spectrum",
+                        value = ""
+                    });
+                }
+                else
+                {
+                    throw new ArgumentOutOfRangeException($"Unknown msLevel: {msLevel}");
+                }
+
+                if (result != null && result.Success)
                 {
                     if (_precursorScanNumbers.ContainsKey(result.Groups[1].Value))
                     {
@@ -1365,60 +1418,88 @@ namespace ThermoRawFileParser.Writer
                 }
                 else //try getting it from the scan filter
                 {
-                    _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
+                    _precursorScanNumber = GetParentFromScanString(result == null ? "" : result.Groups[1].Value);
                 }
 
                 //finding precursor scan failed
-                if (_precursorScanNumber == -2)
+                if (_precursorScanNumber == -2 || !_precursorTree.ContainsKey(_precursorScanNumber))
                 {
                     Log.Warn($"Cannot find precursor scan for scan# {scanNumber}");
-                    _precursorTree[-2] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), new PrecursorType[0]);
-                }
-
-                try
-                {
-                    try //since there is no direct way to get the number of reactions available, it is necessary to try and fail
-                    {
-                        scanEvent.GetReaction(_precursorTree[_precursorScanNumber].ReactionCount);
-                    }
-                    catch (ArgumentOutOfRangeException ex)
-                    {
-                        Log.Debug($"Using Tribrid decision tree fix for scan# {scanNumber}");
-                        //Is it a decision tree scheduled scan on tribrid?
-                        if (msLevel == _precursorTree[_precursorScanNumber].MSLevel)
-                        {
-                            _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
-                        }
-                        else
-                        {
-                            throw new RawFileParserException(
-                                $"Tribrid decision tree fix failed - cannot get reaction# {_precursorTree[_precursorScanNumber].ReactionCount} from {scanEvent.ToString()}",
-                                ex);
-                        }
-                    }
-
-                    // Construct and set the precursor list element of the spectrum
-                    spectrum.precursorList =
-                        ConstructPrecursorList(_precursorScanNumber, scanEvent, charge, monoisotopicMz, isolationWidth,
-                            SPSMasses, out var reactionCount);
-
-                    //save precursor information for later reference
-                    _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, msLevel, reactionCount, spectrum.precursorList.precursor);
-                }
-                catch (Exception e)
-                {
-                    var extra = (e.InnerException is null) ? "" : $"\n{e.InnerException.StackTrace}";
-
-                    Log.Warn($"Failed creating precursor list for scan# {scanNumber} - precursor information for this and dependent scans will be empty\nException details:{e.Message}\n{e.StackTrace}\n{extra}");
+                    _precursorTree[_precursorScanNumber] = new PrecursorInfo(0, msLevel, FindLastReaction(scanEvent, msLevel), new PrecursorType[0]);
                     ParseInput.NewWarn();
-
-                    _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, 1, 0, new PrecursorType[0]);
-
                 }
-            }
-            else
-            {
-                throw new ArgumentOutOfRangeException($"Unknown msLevel: {msLevel}");
+
+
+                if (msLevel == (int)MSOrderType.Ng)
+                {
+                    // Neutral loss/gain spectra do not have precursor information
+                    spectrum.productList = ConstructProductList(scanNumber, scanEvent, out double neutralgain);
+                    spectrumUserParams.Add(new UserParamType
+                    {
+                        name = "neutral gain",
+                        type = "xsd:float",
+                        value = neutralgain.ToString(),
+                        unitAccession = "MS:1000040",
+                        unitCvRef = "MS",
+                        unitName = "m/z"
+                    });
+                }
+                else if (msLevel == (int)MSOrderType.Nl)
+                {
+                    spectrum.productList = ConstructProductList(scanNumber, scanEvent, out double neutralloss);
+                    spectrumUserParams.Add(new UserParamType
+                    {
+                        name = "neutral loss",
+                        type = "xsd:float",
+                        value = neutralloss.ToString(),
+                        unitAccession = "MS:1000040",
+                        unitCvRef = "MS",
+                        unitName = "m/z"
+                    });
+                }
+                else
+                { 
+                    try
+                    {
+                        try //since there is no direct way to get the number of reactions available, it is necessary to try and fail
+                        {
+                            scanEvent.GetReaction(_precursorTree[_precursorScanNumber].ReactionCount);
+                        }
+                        catch (ArgumentOutOfRangeException ex)
+                        {
+                            Log.Debug($"Using Tribrid decision tree fix for scan# {scanNumber}");
+                            //Is it a decision tree scheduled scan on tribrid?
+                            if (msLevel == _precursorTree[_precursorScanNumber].MSLevel)
+                            {
+                                _precursorScanNumber = GetParentFromScanString(result.Groups[1].Value);
+                            }
+                            else
+                            {
+                                throw new RawFileParserException(
+                                    $"Tribrid decision tree fix failed - cannot get reaction# {_precursorTree[_precursorScanNumber].ReactionCount} from {scanEvent.ToString()}",
+                                    ex);
+                            }
+                        }
+
+                        // Construct and set the precursor list element of the spectrum
+                        spectrum.precursorList =
+                            ConstructPrecursorList(_precursorScanNumber, scanEvent, charge, monoisotopicMz, isolationWidth,
+                                SPSMasses, out var reactionCount);
+
+                        //save precursor information for later reference
+                        _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, msLevel, reactionCount, spectrum.precursorList.precursor);
+                    }
+                    catch (Exception e)
+                    {
+                        var extra = (e.InnerException is null) ? "" : $"\n{e.InnerException.StackTrace}";
+
+                        Log.Warn($"Failed creating precursor list for scan# {scanNumber} - precursor information for this and dependent scans will be empty\nException details:{e.Message}\n{e.StackTrace}\n{extra}");
+                        ParseInput.NewWarn();
+
+                        _precursorTree[scanNumber] = new PrecursorInfo(_precursorScanNumber, 1, 0, new PrecursorType[0]);
+
+                    }
+                }
             }
 
             // Scan polarity            
@@ -1454,7 +1535,7 @@ namespace ThermoRawFileParser.Writer
             {
                 name = "total ion current",
                 accession = "MS:1000285",
-                value = scan.ScanStatistics.TIC.ToString(CultureInfo.InvariantCulture),
+                value = scanStats.TIC.ToString(),
                 cvRef = "MS"
             });
 
@@ -1470,14 +1551,40 @@ namespace ThermoRawFileParser.Writer
                 });
             }
 
-            double? basePeakMass;
-            double? basePeakIntensity;
+            MZData mzData;
             double? lowestObservedMz = null;
             double? highestObservedMz = null;
-            double[] masses;
-            double[] intensities;
 
-            if (!ParseInput.NoPeakPicking.Contains((int) scanFilter.MSOrder))
+            // Get each mz data for scan
+            try
+            {
+                mzData = ReadMZData(_rawFile, scanEvent, scanNumber,
+                    !ParseInput.NoPeakPicking.Contains((int)scanFilter.MSOrder), //requestCentroidedData
+                    ParseInput.ChargeData, //requestChargeData
+                    ParseInput.NoiseData); //requestNoiseData
+            }
+            catch (Exception ex)
+            {
+                Log.ErrorFormat("Failed reading mz data for scan #{0} due to following exception: {1}\nMZ data will be empty", scanNumber, ex.Message);
+                Log.DebugFormat("{0}\n{1}", ex.StackTrace, ex.InnerException);
+                ParseInput.NewError();
+
+                mzData = new MZData
+                {
+                    basePeakMass = null,
+                    basePeakIntensity = null,
+                    masses = Array.Empty<double>(),
+                    intensities = Array.Empty<double>(),
+                    charges = Array.Empty<double>(),
+                    baselineData = Array.Empty<double>(),
+                    noiseData = Array.Empty<double>(),
+                    massData = Array.Empty<double>(),
+                    isCentroided = false
+                };
+            }
+
+            //read centroid flag
+            if (mzData.isCentroided)
             {
                 //Spectrum will be centroided
                 spectrumCvParams.Add(new CVParamType
@@ -1487,86 +1594,33 @@ namespace ThermoRawFileParser.Writer
                     name = "centroid spectrum",
                     value = ""
                 });
-
-                // Check if the scan has a centroid stream
-                if (scan.HasCentroidStream)
-                {
-                    basePeakMass = scan.CentroidScan.BasePeakMass;
-                    basePeakIntensity = scan.CentroidScan.BasePeakIntensity;
-
-                    masses = scan.CentroidScan.Masses;
-                    intensities = scan.CentroidScan.Intensities;
-
-                    if (scan.CentroidScan.Length > 0)
-                    {
-                        lowestObservedMz = scan.CentroidScan.Masses[0];
-                        highestObservedMz = scan.CentroidScan.Masses[scan.CentroidScan.Masses.Length - 1];
-                    }
-                }
-                else // otherwise take the segmented (low res) scan
-                {
-                    basePeakMass = scan.ScanStatistics.BasePeakMass;
-                    basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
-
-                    // If the spectrum is profile perform centroiding
-                    var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
-                        ? Scan.ToCentroid(scan).SegmentedScan
-                        : scan.SegmentedScan;
-
-                    masses = segmentedScan.Positions;
-                    intensities = segmentedScan.Intensities;
-
-                    if (segmentedScan.PositionCount > 0)
-                    {
-                        lowestObservedMz = segmentedScan.Positions[0];
-                        highestObservedMz = segmentedScan.Positions[segmentedScan.PositionCount - 1];
-                    }
-                }
             }
-            else // use the segmented data as is
+            else
             {
-                switch (scanEvent.ScanData) //check if the data centroided already
+                spectrumCvParams.Add(new CVParamType
                 {
-                    case ScanDataType.Centroid:
-                        spectrumCvParams.Add(new CVParamType
-                        {
-                            accession = "MS:1000127",
-                            cvRef = "MS",
-                            name = "centroid spectrum",
-                            value = ""
-                        });
-                        break;
-                    case ScanDataType.Profile:
-                        spectrumCvParams.Add(new CVParamType
-                        {
-                            accession = "MS:1000128",
-                            cvRef = "MS",
-                            name = "profile spectrum",
-                            value = ""
-                        });
-                        break;
-                }
+                    accession = "MS:1000128",
+                    cvRef = "MS",
+                    name = "profile spectrum",
+                    value = ""
+                });
+            }
 
-                basePeakMass = scan.ScanStatistics.BasePeakMass;
-                basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
-                masses = scan.SegmentedScan.Positions;
-                intensities = scan.SegmentedScan.Intensities;
-
-                if (scan.SegmentedScan.Positions.Length > 0)
-                {
-                    lowestObservedMz = scan.SegmentedScan.Positions[0];
-                    highestObservedMz = scan.SegmentedScan.Positions[scan.SegmentedScan.Positions.Length - 1];
-                }
+            // Calculate mz data limits
+            if (mzData.masses != null && mzData.masses.Length > 0)
+            {
+                lowestObservedMz = mzData.masses[0];
+                highestObservedMz = mzData.masses[mzData.masses.Length - 1];
             }
 
             // Base peak m/z
-            if (basePeakMass != null)
+            if (mzData.basePeakMass.HasValue)
             {
                 spectrumCvParams.Add(new CVParamType
                 {
                     name = "base peak m/z",
                     accession = "MS:1000504",
-                    value = basePeakMass.Value.ToString(CultureInfo.InvariantCulture),
+                    value = mzData.basePeakMass.Value.ToString(),
                     unitCvRef = "MS",
                     unitName = "m/z",
                     unitAccession = "MS:1000040",
@@ -1575,13 +1629,13 @@ namespace ThermoRawFileParser.Writer
             }
 
             // Base peak intensity
-            if (basePeakIntensity != null)
+            if (mzData.basePeakIntensity.HasValue)
             {
                 spectrumCvParams.Add(new CVParamType
                 {
                     name = "base peak intensity",
                     accession = "MS:1000505",
-                    value = basePeakIntensity.Value.ToString(CultureInfo.InvariantCulture),
+                    value = mzData.basePeakIntensity.Value.ToString(),
                     unitCvRef = "MS",
                     unitName = "number of detector counts",
                     unitAccession = "MS:1000131",
@@ -1590,13 +1644,13 @@ namespace ThermoRawFileParser.Writer
             }
 
             // Lowest observed mz
-            if (lowestObservedMz != null)
+            if (lowestObservedMz.HasValue)
             {
                 spectrumCvParams.Add(new CVParamType
                 {
                     name = "lowest observed m/z",
                     accession = "MS:1000528",
-                    value = lowestObservedMz.Value.ToString(CultureInfo.InvariantCulture),
+                    value = lowestObservedMz.Value.ToString(),
                     unitCvRef = "MS",
                     unitAccession = "MS:1000040",
                     unitName = "m/z",
@@ -1605,13 +1659,13 @@ namespace ThermoRawFileParser.Writer
             }
 
             // Highest observed mz
-            if (highestObservedMz != null)
+            if (highestObservedMz.HasValue)
             {
                 spectrumCvParams.Add(new CVParamType
                 {
                     name = "highest observed m/z",
                     accession = "MS:1000527",
-                    value = highestObservedMz.Value.ToString(CultureInfo.InvariantCulture),
+                    value = highestObservedMz.Value.ToString(),
                     unitAccession = "MS:1000040",
                     unitName = "m/z",
                     unitCvRef = "MS",
@@ -1621,27 +1675,34 @@ namespace ThermoRawFileParser.Writer
 
             // Add the CV params to the spectrum
             spectrum.cvParam = spectrumCvParams.ToArray();
+            // Add user params to the spectrum
+            spectrum.userParam = spectrumUserParams.ToArray();
 
             // Binary data array list
             var binaryData = new List<BinaryDataArrayType>();
 
             // M/Z Data
-            if (masses != null)
+            if (mzData.masses != null)
             {
-                //sorting
-                Array.Sort(masses, intensities);
-
                 // Set the spectrum default array length
-                spectrum.defaultArrayLength = masses.Length;
+                spectrum.defaultArrayLength = mzData.masses.Length;
+
+                if (mzData.masses.Length == 0)
+                {
+                    Log.WarnFormat("Spectrum #{0} has no m/z data", scanNumber);
+                    ParseInput.NewWarn();
+                }
 
                 var massesBinaryData =
                     new BinaryDataArrayType
                     {
-                        binary = ParseInput.NoZlibCompression ? Get64BitArray(masses) : GetZLib64BitArray(masses)
+                        binary = ParseInput.NoZlibCompression
+                            ? Get64BitArray(mzData.masses)
+                            : GetZLib64BitArray(mzData.masses)
                     };
                 massesBinaryData.encodedLength =
                     (4 * Math.Ceiling((double) massesBinaryData
-                        .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                        .binary.Length / 3)).ToString();
                 var massesBinaryDataCvParams = new List<CVParamType>
                 {
                     new CVParamType
@@ -1686,24 +1747,24 @@ namespace ThermoRawFileParser.Writer
             }
 
             // Intensity Data
-            if (intensities != null)
+            if (mzData.masses != null && mzData.intensities != null)
             {
                 // Set the spectrum default array length if necessary
                 if (spectrum.defaultArrayLength == 0)
                 {
-                    spectrum.defaultArrayLength = intensities.Length;
+                    spectrum.defaultArrayLength = mzData.intensities.Length;
                 }
 
                 var intensitiesBinaryData =
                     new BinaryDataArrayType
                     {
                         binary = ParseInput.NoZlibCompression
-                            ? Get64BitArray(intensities)
-                            : GetZLib64BitArray(intensities)
+                            ? Get64BitArray(mzData.intensities)
+                            : GetZLib64BitArray(mzData.intensities)
                     };
                 intensitiesBinaryData.encodedLength =
                     (4 * Math.Ceiling((double) intensitiesBinaryData
-                        .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                        .binary.Length / 3)).ToString();
                 var intensitiesBinaryDataCvParams = new List<CVParamType>
                 {
                     new CVParamType
@@ -1746,36 +1807,82 @@ namespace ThermoRawFileParser.Writer
                 binaryData.Add(intensitiesBinaryData);
             }
 
+            // Optional Charge Data
+            if (ParseInput.ChargeData && mzData.masses != null && mzData.charges != null)
+            {
+                var chargesBinaryData =
+                    new BinaryDataArrayType
+                    {
+                        binary = ParseInput.NoZlibCompression
+                            ? Get64BitArray(mzData.charges)
+                            : GetZLib64BitArray(mzData.charges)
+                    };
+                chargesBinaryData.encodedLength =
+                    (4 * Math.Ceiling((double)chargesBinaryData
+                        .binary.Length / 3)).ToString();
+
+                var chargesBinaryDataCvParams = new List<CVParamType>
+                {
+                    new CVParamType
+                    {
+                        accession = "MS:1000516",
+                        name = "charge array",
+                        cvRef = "MS",
+                        value = ""
+                    },
+                    new CVParamType {accession = "MS:1000523", name = "64-bit float", cvRef = "MS", value = ""}
+                };
+
+                if (!ParseInput.NoZlibCompression)
+                {
+                    chargesBinaryDataCvParams.Add(
+                        new CVParamType
+                        {
+                            accession = "MS:1000574",
+                            name = "zlib compression",
+                            cvRef = "MS",
+                            value = ""
+                        });
+                }
+                else
+                {
+                    chargesBinaryDataCvParams.Add(
+                        new CVParamType
+                        {
+                            accession = "MS:1000576",
+                            name = "no compression",
+                            cvRef = "MS",
+                            value = ""
+                        });
+                }
+
+                chargesBinaryData.cvParam = chargesBinaryDataCvParams.ToArray();
+
+                binaryData.Add(chargesBinaryData);
+            }
+
             // Include optional noise data
             if (ParseInput.NoiseData)
             {
-                double[] baselineData;
-                double[] noiseData;
-                double[] massData;
-
-                baselineData = scan.PreferredBaselines;
-                noiseData = scan.PreferredNoises;
-                massData = scan.PreferredMasses;
-
                 // Noise Data
-                if ((baselineData != null) && (noiseData != null) && (massData != null))
+                if ((mzData.baselineData != null) && (mzData.noiseData != null) && (mzData.massData != null))
                 {
                     // Set the spectrum default array length if necessary
                     if (spectrum.defaultArrayLength == 0)
                     {
-                        spectrum.defaultArrayLength = noiseData.Length;
+                        spectrum.defaultArrayLength = mzData.noiseData.Length;
                     }
 
                     var baselineBinaryData =
                     new BinaryDataArrayType
                     {
                         binary = ParseInput.NoZlibCompression
-                            ? Get64BitArray(baselineData)
-                            : GetZLib64BitArray(baselineData)
+                            ? Get64BitArray(mzData.baselineData)
+                            : GetZLib64BitArray(mzData.baselineData)
                     };
                     baselineBinaryData.encodedLength =
                         (4 * Math.Ceiling((double)baselineBinaryData
-                            .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                            .binary.Length / 3)).ToString();
 
                     var baselineBinaryDataCvParams = new List<CVParamType>
                     {
@@ -1820,12 +1927,12 @@ namespace ThermoRawFileParser.Writer
                     new BinaryDataArrayType
                     {
                         binary = ParseInput.NoZlibCompression
-                            ? Get64BitArray(noiseData)
-                            : GetZLib64BitArray(noiseData)
+                            ? Get64BitArray(mzData.noiseData)
+                            : GetZLib64BitArray(mzData.noiseData)
                     };
                     noiseBinaryData.encodedLength =
                         (4 * Math.Ceiling((double)noiseBinaryData
-                            .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                            .binary.Length / 3)).ToString();
 
                     var noiseBinaryDataCvParams = new List<CVParamType>
                     {
@@ -1874,12 +1981,12 @@ namespace ThermoRawFileParser.Writer
                     new BinaryDataArrayType
                     {
                         binary = ParseInput.NoZlibCompression
-                            ? Get64BitArray(massData)
-                            : GetZLib64BitArray(massData)
+                            ? Get64BitArray(mzData.massData)
+                            : GetZLib64BitArray(mzData.massData)
                     };
                     massBinaryData.encodedLength =
                         (4 * Math.Ceiling((double)massBinaryData
-                            .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                            .binary.Length / 3)).ToString();
 
                     var massBinaryDataCvParams = new List<CVParamType>
                     {
@@ -1938,43 +2045,57 @@ namespace ThermoRawFileParser.Writer
             return spectrum;
         }
 
-        private int FindLastReaction(IScanEvent scanEvent, int msLevel)
+        private ProductListType ConstructProductList(int scanNumber, IScanEvent scanEvent, out double neutral)
         {
-            int lastReactionIndex = msLevel - 2;
+            IReaction reaction = null;
+            
+            reaction = scanEvent.GetReaction(0);
 
-            //iteratively trying find the last available index for reaction
-            while(true)
-            {
-                try
-                {
-                    scanEvent.GetReaction(lastReactionIndex + 1);
-                }
-                catch (ArgumentOutOfRangeException)
-                {
-                    //stop trying
-                    break;
-                }
+            double? isolationWidth = reaction.IsolationWidth;
+            if (isolationWidth < 0) isolationWidth = null;
 
-                lastReactionIndex++;
+            neutral = reaction.PrecursorMass;
+
+            var product = new ProductType();
+
+            if (isolationWidth != null)
+            { 
+                product.isolationWindow =
+                    new ParamGroupType
+                    {
+                        cvParam = new CVParamType[2]
+                    };
+
+                var offset = isolationWidth.Value / 2 + reaction.IsolationWidthOffset;
+                product.isolationWindow.cvParam[0] =
+                    new CVParamType
+                    {
+                        accession = "MS:1000828",
+                        name = "isolation window lower offset",
+                        value = (isolationWidth.Value - offset).ToString(),
+                        cvRef = "MS",
+                        unitCvRef = "MS",
+                        unitAccession = "MS:1000040",
+                        unitName = "m/z"
+                    };
+                product.isolationWindow.cvParam[1] =
+                    new CVParamType
+                    {
+                        accession = "MS:1000829",
+                        name = "isolation window upper offset",
+                        value = offset.ToString(),
+                        cvRef = "MS",
+                        unitCvRef = "MS",
+                        unitAccession = "MS:1000040",
+                        unitName = "m/z"
+                    };
             }
 
-            //supplemental activation flag is on -> one of the levels (not necissirily the last one) used supplemental activation
-            //check last two activations
-            if (scanEvent.SupplementalActivation == TriState.On) 
+            return new ProductListType
             {
-                var lastActivation = scanEvent.GetReaction(lastReactionIndex).ActivationType;
-                var beforeLastActivation = scanEvent.GetReaction(lastReactionIndex - 1).ActivationType;
-
-                if ((beforeLastActivation == ActivationType.ElectronTransferDissociation || beforeLastActivation == ActivationType.ElectronCaptureDissociation) &&
-                    (lastActivation == ActivationType.CollisionInducedDissociation || lastActivation == ActivationType.HigherEnergyCollisionalDissociation))
-                    return lastReactionIndex - 1; //ETD or ECD followed by HCD or CID -> supplemental activation in the last level (move the last reaction one step back)
-                else
-                    return lastReactionIndex;
-            }
-            else //just use the last one
-            {
-                return lastReactionIndex;
-            }
+                count = "1",
+                product = new ProductType[] { product }
+            };
         }
 
         private SpectrumType ConstructPDASpectrum(int scanNumber, int instrumentNumber)
@@ -2032,7 +2153,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     name = "base peak m/z",
                     accession = "MS:1000504",
-                    value = basePeakPosition.Value.ToString(CultureInfo.InvariantCulture),
+                    value = basePeakPosition.Value.ToString(),
                     unitCvRef = "MS",
                     unitName = "m/z",
                     unitAccession = "MS:1000040",
@@ -2047,7 +2168,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     name = "base peak intensity",
                     accession = "MS:1000505",
-                    value = basePeakIntensity.Value.ToString(CultureInfo.InvariantCulture),
+                    value = basePeakIntensity.Value.ToString(),
                     unitCvRef = "MS",
                     unitName = "number of detector counts",
                     unitAccession = "MS:1000131",
@@ -2062,7 +2183,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     name = "lowest observed wavelength",
                     accession = "MS:1000619",
-                    value = lowestPosition.Value.ToString(CultureInfo.InvariantCulture),
+                    value = lowestPosition.Value.ToString(),
                     unitCvRef = "MS",
                     unitAccession = "UO:0000018",
                     unitName = "nanometer",
@@ -2077,7 +2198,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     name = "highest observed wavelength",
                     accession = "MS:1000618",
-                    value = highestPosition.Value.ToString(CultureInfo.InvariantCulture),
+                    value = highestPosition.Value.ToString(),
                     unitAccession = "UO:0000018",
                     unitName = "nanometer",
                     unitCvRef = "UO",
@@ -2104,7 +2225,7 @@ namespace ThermoRawFileParser.Writer
                     };
                 positionsBinaryData.encodedLength =
                     (4 * Math.Ceiling((double) positionsBinaryData
-                        .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                        .binary.Length / 3)).ToString();
                 var positionsBinaryDataCvParams = new List<CVParamType>
                 {
                     new CVParamType
@@ -2165,7 +2286,7 @@ namespace ThermoRawFileParser.Writer
                     };
                 intensitiesBinaryData.encodedLength =
                     (4 * Math.Ceiling((double) intensitiesBinaryData
-                        .binary.Length / 3)).ToString(CultureInfo.InvariantCulture);
+                        .binary.Length / 3)).ToString();
                 var intensitiesBinaryDataCvParams = new List<CVParamType>
                 {
                     new CVParamType
@@ -2274,7 +2395,7 @@ namespace ThermoRawFileParser.Writer
                 new CVParamType
                 {
                     name = "selected ion m/z",
-                    value = selectedIonMz.ToString(CultureInfo.InvariantCulture),
+                    value = selectedIonMz.ToString(),
                     accession = "MS:1000744",
                     cvRef = "MS",
                     unitCvRef = "MS",
@@ -2298,19 +2419,17 @@ namespace ThermoRawFileParser.Writer
             {
                 var selectedIonIntensity = CalculatePrecursorPeakIntensity(_rawFile, precursorScanNumber, reaction.PrecursorMass, isolationWidth,
                     ParseInput.NoPeakPicking.Contains(msLevel - 1));
-                if (selectedIonIntensity != null)
+
+                ionCvParams.Add(new CVParamType
                 {
-                    ionCvParams.Add(new CVParamType
-                    {
-                        name = "peak intensity",
-                        value = selectedIonIntensity.ToString(),
-                        accession = "MS:1000042",
-                        cvRef = "MS",
-                        unitAccession = "MS:1000131",
-                        unitCvRef = "MS",
-                        unitName = "number of detector counts"
-                    });
-                }
+                    name = "peak intensity",
+                    value = selectedIonIntensity.ToString(),
+                    accession = "MS:1000042",
+                    cvRef = "MS",
+                    unitAccession = "MS:1000131",
+                    unitCvRef = "MS",
+                    unitName = "number of detector counts"
+                });
             }
 
             precursor.selectedIonList.selectedIon[0].cvParam = ionCvParams.ToArray();
@@ -2326,7 +2445,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     accession = "MS:1000827",
                     name = "isolation window target m/z",
-                    value = precursorMz.ToString(CultureInfo.InvariantCulture),
+                    value = precursorMz.ToString(),
                     cvRef = "MS",
                     unitCvRef = "MS",
                     unitAccession = "MS:1000040",
@@ -2340,7 +2459,7 @@ namespace ThermoRawFileParser.Writer
                     {
                         accession = "MS:1000828",
                         name = "isolation window lower offset",
-                        value = (isolationWidth.Value - offset).ToString(CultureInfo.InvariantCulture),
+                        value = (isolationWidth.Value - offset).ToString(),
                         cvRef = "MS",
                         unitCvRef = "MS",
                         unitAccession = "MS:1000040",
@@ -2351,7 +2470,7 @@ namespace ThermoRawFileParser.Writer
                     {
                         accession = "MS:1000829",
                         name = "isolation window upper offset",
-                        value = offset.ToString(CultureInfo.InvariantCulture),
+                        value = offset.ToString(),
                         cvRef = "MS",
                         unitCvRef = "MS",
                         unitAccession = "MS:1000040",
@@ -2371,7 +2490,7 @@ namespace ThermoRawFileParser.Writer
                             accession = "MS:1000045",
                             name = "collision energy",
                             cvRef = "MS",
-                            value = reaction.CollisionEnergy.ToString(CultureInfo.InvariantCulture),
+                            value = reaction.CollisionEnergy.ToString(),
                             unitCvRef = "UO",
                             unitAccession = "UO:0000266",
                             unitName = "electronvolt"
@@ -2411,7 +2530,7 @@ namespace ThermoRawFileParser.Writer
                                 accession = "MS:1002680",
                                 name = "supplemental collision energy",
                                 cvRef = "MS",
-                                value = reaction.CollisionEnergy.ToString(CultureInfo.InvariantCulture),
+                                value = reaction.CollisionEnergy.ToString(),
                                 unitCvRef = "UO",
                                 unitAccession = "UO:0000266",
                                 unitName = "electronvolt"
@@ -2450,7 +2569,7 @@ namespace ThermoRawFileParser.Writer
                     reactionCount++;
                 }
             }
-            catch (ArgumentOutOfRangeException)
+            catch (IndexOutOfRangeException)
             {
                 // If we failed do nothing
             }
@@ -2484,7 +2603,7 @@ namespace ThermoRawFileParser.Writer
                     {
                         accession = "MS:1000827",
                         name = "isolation window target m/z",
-                        value = SPSMasses[n].ToString(CultureInfo.InvariantCulture),
+                        value = SPSMasses[n].ToString(),
                         cvRef = "MS",
                         unitCvRef = "MS",
                         unitAccession = "MS:1000040",
@@ -2498,7 +2617,7 @@ namespace ThermoRawFileParser.Writer
                         {
                             accession = "MS:1000828",
                             name = "isolation window lower offset",
-                            value = (isolationWidth.Value - offset).ToString(CultureInfo.InvariantCulture),
+                            value = (isolationWidth.Value - offset).ToString(),
                             cvRef = "MS",
                             unitCvRef = "MS",
                             unitAccession = "MS:1000040",
@@ -2509,7 +2628,7 @@ namespace ThermoRawFileParser.Writer
                         {
                             accession = "MS:1000829",
                             name = "isolation window upper offset",
-                            value = offset.ToString(CultureInfo.InvariantCulture),
+                            value = offset.ToString(),
                             cvRef = "MS",
                             unitCvRef = "MS",
                             unitAccession = "MS:1000040",
@@ -2557,29 +2676,6 @@ namespace ThermoRawFileParser.Writer
 
         }
 
-        private int GetParentFromScanString(string scanString)
-        {
-            var parts = Regex.Split(scanString, " ");
-
-            //find the position of the first (from the end) precursor with a different mass 
-            //to account for possible supplementary activations written in the filter
-            var lastIonMass = parts.Last().Split('@').First();
-            int last = parts.Length;
-            while (last > 0 &&
-                   parts[last - 1].Split('@').First() == lastIonMass)
-            {
-                last--;
-            }
-
-            string parentFilter = String.Join(" ", parts.Take(last));
-            if (_precursorScanNumbers.ContainsKey(parentFilter))
-            {
-                return _precursorScanNumbers[parentFilter];
-            }
-
-            return -2; //unsuccessful parsing
-        }
-
         /// <summary>
         /// Populate the scan list element. Full version used for mass spectra,
         /// having Scan Event, scan Filter etc
@@ -2591,7 +2687,7 @@ namespace ThermoRawFileParser.Writer
         /// <param name="monoisotopicMass">the monoisotopic mass</param>
         /// <param name="ionInjectionTime">the ion injection time</param>
         /// <returns></returns>
-        private ScanListType ConstructScanList(int scanNumber, Scan scan, IScanFilter scanFilter, IScanEvent scanEvent,
+        private ScanListType ConstructScanList(int scanNumber, ScanStatistics scanStat, IScanFilter scanFilter, IScanEvent scanEvent,
             double? monoisotopicMass, double? ionInjectionTime)
         {
             // Scan list
@@ -2616,14 +2712,14 @@ namespace ThermoRawFileParser.Writer
                 instrumentConfigurationRef = "IC1";
             }
 
+            // Scan start time & scan filter string
             var scanTypeCvParams = new List<CVParamType>
             {
                 new CVParamType
                 {
                     name = "scan start time",
                     accession = "MS:1000016",
-                    value = _rawFile.RetentionTimeFromScanNumber(scanNumber)
-                        .ToString(CultureInfo.InvariantCulture),
+                    value = _rawFile.RetentionTimeFromScanNumber(scanNumber).ToString(),
                     unitCvRef = "UO",
                     unitAccession = "UO:0000031",
                     unitName = "minute",
@@ -2635,10 +2731,6 @@ namespace ThermoRawFileParser.Writer
                 }
             };
 
-            // Scan start time
-
-            // Scan filter string
-
             // Ion injection time
             if (ionInjectionTime.HasValue)
             {
@@ -2647,7 +2739,7 @@ namespace ThermoRawFileParser.Writer
                     name = "ion injection time",
                     cvRef = "MS",
                     accession = "MS:1000927",
-                    value = ionInjectionTime.Value.ToString(CultureInfo.InvariantCulture),
+                    value = ionInjectionTime.Value.ToString(),
                     unitCvRef = "UO",
                     unitAccession = "UO:0000028",
                     unitName = "millisecond"
@@ -2667,7 +2759,7 @@ namespace ThermoRawFileParser.Writer
                 scanType.userParam[0] = new UserParamType
                 {
                     name = "[Thermo Trailer Extra]Monoisotopic M/Z:",
-                    value = monoisotopicMass.Value.ToString(CultureInfo.InvariantCulture),
+                    value = monoisotopicMass.Value.ToString(),
                     type = "xsd:float"
                 };
             }
@@ -2686,7 +2778,7 @@ namespace ThermoRawFileParser.Writer
             {
                 name = "scan window lower limit",
                 accession = "MS:1000501",
-                value = scan.ScanStatistics.LowMass.ToString(CultureInfo.InvariantCulture),
+                value = scanStat.LowMass.ToString(),
                 cvRef = "MS",
                 unitAccession = "MS:1000040",
                 unitCvRef = "MS",
@@ -2696,7 +2788,7 @@ namespace ThermoRawFileParser.Writer
             {
                 name = "scan window upper limit",
                 accession = "MS:1000500",
-                value = scan.ScanStatistics.HighMass.ToString(CultureInfo.InvariantCulture),
+                value = scanStat.HighMass.ToString(),
                 cvRef = "MS",
                 unitAccession = "MS:1000040",
                 unitCvRef = "MS",
@@ -2742,8 +2834,7 @@ namespace ThermoRawFileParser.Writer
                 {
                     name = "scan start time",
                     accession = "MS:1000016",
-                    value = _rawFile.RetentionTimeFromScanNumber(scanNumber)
-                        .ToString(CultureInfo.InvariantCulture),
+                    value = _rawFile.RetentionTimeFromScanNumber(scanNumber).ToString(),
                     unitCvRef = "UO",
                     unitAccession = "UO:0000031",
                     unitName = "minute",
@@ -2769,7 +2860,7 @@ namespace ThermoRawFileParser.Writer
             {
                 name = "scan window lower limit",
                 accession = "MS:1000501",
-                value = scan.ScanStatistics.ShortWavelength.ToString(CultureInfo.InvariantCulture),
+                value = scan.ScanStatistics.ShortWavelength.ToString(),
                 cvRef = "MS",
                 unitAccession = "UO:0000018",
                 unitCvRef = "UO",
@@ -2779,7 +2870,7 @@ namespace ThermoRawFileParser.Writer
             {
                 name = "scan window upper limit",
                 accession = "MS:1000500",
-                value = scan.ScanStatistics.LongWavelength.ToString(CultureInfo.InvariantCulture),
+                value = scan.ScanStatistics.LongWavelength.ToString(),
                 cvRef = "MS",
                 unitAccession = "UO:0000018",
                 unitCvRef = "UO",

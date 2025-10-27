@@ -1,15 +1,17 @@
 # ThermoRawFileParser
 
-Wrapper around the .net (C#) ThermoFisher ThermoRawFileReader library for running on Linux with mono (works on Windows too). It takes a thermo RAW file as input and outputs a metadata file and the spectra in 3 possible formats:
+A tool allowing reading Thermo RAW mass spectrometer files and converting to common open formats on all platforms supporting .NET Core.
+
+Supported formats:
 * MGF
 * mzML and indexed mzML
-* Apache Parquet: under development
+* Apache Parquet
+
+Version before 2.0.0 require Mono to run on Linux and Mac.
 
 As of version 1.2.0, 2 subcommands are available (shoutout to the [eubic 2020 developers meeting](https://eubic-ms.org/events/2020-developers-meeting/), see [usage](#usage) for examples):
 * query: returns one or more spectra in JSON PROXI by scan number(s)
 * xic: returns chromatogram data based on JSON filter input
-
-These features are still under development, remarks or suggestions are more than welcome.
 
 RawFileReader reading tool. Copyright © 2016 by Thermo Fisher Scientific, Inc. All rights reserved
 
@@ -17,7 +19,14 @@ RawFileReader reading tool. Copyright © 2016 by Thermo Fisher Scientific, Inc. 
   * Hulstaert N, Shofstahl J, Sachsenberg T, Walzer M, Barsnes H, Martens L, Perez-Riverol Y: _ThermoRawFileParser: Modular, Scalable, and Cross-Platform RAW File Conversion_ [[PMID 31755270](https://www.ncbi.nlm.nih.gov/pubmed/31755270)].
   * If you use ThermoRawFileParser as part of a publication, please include this reference.
 
-## (Linux) Requirements
+## Requirements
+
+### Current version
+Release page provide self-contained releases for OSX, Linux, and Windows and framework-based release. Framework-based release requires [.NET 8 runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0/runtime).
+
+For developers: [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) is required to build the tool.
+
+### Prior to 1.5.0
 [Mono](https://www.mono-project.com/download/stable/#download-lin) (install mono-complete if you encounter "assembly not found" errors).
 
 ## Download
@@ -33,37 +42,39 @@ You can read release notes (starting from version 1.1.7) in the [wiki page](http
 ## Usage
 
 ```
-mono ThermoRawFileParser.exe -i=/home/user/data_input/raw_file.raw -o=/home/user/data_input/output/ -f=0 -g -m=0
+ThermoRawFileParser -i=/home/user/data_input/raw_file.raw -o=/home/user/data_input/output/ -f=0 -g -m=0
 ```
 
 with only the mimimal required argument `-i` or `-d` this becomes
 
 ```
-mono ThermoRawFileParser.exe -i=/home/user/data_input/raw_file.raw
+ThermoRawFileParser -i=/home/user/data_input/raw_file.raw
 ```
 or
 
 ```
-mono ThermoRawFileParser.exe -d=/home/user/data_input/
+ThermoRawFileParser -d=/home/user/data_input/
 ```
 
-For running on Windows, omit `mono`. The optional parameters only work in the -option=value format. The tool can output some RAW file metadata `-m=0|1` (0 for JSON, 1 for TXT) and the spectra file `-f=0|1|2|3|4` (0 for MGF, 1 for mzML, 2 for indexed mzML, 3 for Parquet, 4 for no output) or both. Use the `-p` flag to disable the thermo native peak picking. 
+When running framework-based version use `dotnet ThermoRawFileParser.dll` instead.
+
+ The optional parameters only work in the -option=value format. The tool can output some RAW file metadata `-m=0|1` (0 for JSON, 1 for TXT) and the spectra file `-f=0|1|2|3|4` (0 for MGF, 1 for mzML, 2 for indexed mzML, 3 for Parquet, 4 for no output) or both. Use the `-p` flag to disable the thermo native peak picking. 
 
 ```
 Usage is ThermoRawFileParser.exe [subcommand] [options]
 optional subcommands are xic|query (use [subcommand] -h for more info]):
   -h, --help                 Prints out the options.
-      --version              Prints out the version of the executable.
+  -v, --version              Prints out the version of the executable.
   -i, --input=VALUE          The raw file input (Required). Specify this or an
                                input directory -d.
   -d, --input_directory=VALUE
                              The directory containing the raw files (Required).
                                Specify this or an input raw file -i.
-  -b, --output=VALUE    	 The output file. Specify this or an output
+  -b, --output=VALUE         The output file. Specify this or an output
                                directory -o. Specifying neither writes to the
                                input directory.
   -o, --output_directory=VALUE
-							 The output directory. Specify this or an output
+                             The output directory. Specify this or an output
                                file -b. Specifying neither writes to the input
                                directory.
   -s, --stdout               Write to standard output. Cannot be combined with
@@ -107,6 +118,8 @@ optional subcommands are xic|query (use [subcommand] -h for more info]):
                                end intervals (1-) are allowed
   -P, --mgfPrecursor         Include precursor scan number in MGF file TITLE
   -N, --noiseData            Include noise data in mzML output
+  -C, --chargeData           Include instrument detected charge states in mzML
+                               output (only for high resolution centroided data)
   -w, --warningsAreErrors    Return non-zero exit code for warnings; default
                                only for errors
   -u, --s3_url[=VALUE]       Optional property to write directly the data into

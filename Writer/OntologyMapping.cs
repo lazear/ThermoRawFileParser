@@ -401,10 +401,37 @@ namespace ThermoRawFileParser.Writer
                     }
                 },
                 {
+                    "MALDI LTQ ORBITRAP XL", new CVParamType
+                    {
+                        accession = "MS:1003496",
+                        name = "MALDI LTQ Orbitrap XL",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
+                    "MALDI LTQ ORBITRAP DISCOVERY", new CVParamType
+                    {
+                        accession = "MS:1003497",
+                        name = "MALDI LTQ Orbitrap Discovery",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
                     "LTQ ORBITRAP VELOS", new CVParamType
                     {
                         accession = "MS:1001742",
                         name = "LTQ Orbitrap Velos",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
+                    "LTQ ORBITRAP VELOS/ETD", new CVParamType
+                    {
+                        accession = "MS:1003499",
+                        name = "LTQ Orbitrap Velos/ETD",
                         cvRef = "MS",
                         value = ""
                     }
@@ -422,7 +449,7 @@ namespace ThermoRawFileParser.Writer
                     "LTQ ORBITRAP VELOS PRO", new CVParamType
                     {
                         accession = "MS:1003096",
-                        name = "LTQ Orbitrap Velos Pro",
+                        name = "Orbitrap Velos Pro",
                         cvRef = "MS",
                         value = ""
                     }
@@ -431,7 +458,7 @@ namespace ThermoRawFileParser.Writer
                     "ORBITRAP VELOS PRO", new CVParamType
                     {
                         accession = "MS:1003096",
-                        name = "LTQ Orbitrap Velos Pro",
+                        name = "Orbitrap Velos Pro",
                         cvRef = "MS",
                         value = ""
                     }
@@ -440,7 +467,7 @@ namespace ThermoRawFileParser.Writer
                     "LTQ ORBITRAP ELITE", new CVParamType
                     {
                         accession = "MS:1001910",
-                        name = "LTQ Orbitrap Elite",
+                        name = "Orbitrap Elite",
                         cvRef = "MS",
                         value = ""
                     }
@@ -449,7 +476,7 @@ namespace ThermoRawFileParser.Writer
                     "ORBITRAP ELITE", new CVParamType
                     {
                         accession = "MS:1001910",
-                        name = "LTQ Orbitrap Elite",
+                        name = "Orbitrap Elite",
                         cvRef = "MS",
                         value = ""
                     }
@@ -509,10 +536,19 @@ namespace ThermoRawFileParser.Writer
                     }
                 },
                 {
+                    "VELOS PRO", new CVParamType
+                    {
+                        accession = "MS:1003495",
+                        name = "Velos Pro",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
                     "LTQ VELOS ETD", new CVParamType
                     {
                         accession = "MS:1000856",
-                        name = "LTQ Velos ETD",
+                        name = "LTQ Velos/ETD",
                         cvRef = "MS",
                         value = ""
                     }
@@ -678,6 +714,69 @@ namespace ThermoRawFileParser.Writer
                         cvRef = "MS",
                         value = ""
                     }
+                },
+                {
+                    "TSQ QUANTUM ACCESS MAX", new CVParamType
+                    {
+                        accession = "MS:1003498",
+                        name = "TSQ Quantum Access MAX",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
+                    "TSQ QUANTUM XLS", new CVParamType
+                    {
+                        accession = "MS:1003502",
+                        name = "TSQ Quantum XLS",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
+                    "TSQ 8000", new CVParamType
+                    {
+                        accession = "MS:1003503",
+                        name = "TSQ 8000",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
+                    "ISQ LT", new CVParamType
+                    {
+                        accession = "MS:1003500",
+                        name = "ISQ LT",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
+                    "ITQ", new CVParamType
+                    {
+                        accession = "MS:1003501",
+                        name = "ITQ",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
+                    "DELTAPLUS IRMS", new CVParamType
+                    {
+                        accession = "MS:1003504",
+                        name = "DeltaPlus IRMS",
+                        cvRef = "MS",
+                        value = ""
+                    }
+                },
+                {
+                    "THERMOQUEST VOYAGER", new CVParamType
+                    {
+                        accession = "MS:1003554",
+                        name = "ThermoQuest Voyager",
+                        cvRef = "MS",
+                        value = ""
+                    }
                 }
             };
 
@@ -776,8 +875,14 @@ namespace ThermoRawFileParser.Writer
                 case "MS:1000639":
                 // MALDI LTQ ORBITRAP   
                 case "MS:1000643":
+                // MALDI LTQ ORBITRAP XL
+                case "MS:1003496":
+                // MALDI LTQ ORBITRAP DISCOVERY
+                case "MS:1003497":
                 // LTQ ORBITRAP VELOS    
                 case "MS:1001742":
+                // LTQ ORBITRAP VELOS/ETD
+                case "MS:1003499":
                 // LTQ ORBITRAP VELOS PRO
                 case "MS:1003096":
                 // LTQ ORBITRAP ELITE    
@@ -812,6 +917,26 @@ namespace ThermoRawFileParser.Writer
                         }
                     };
                     break;
+                // ORBITRAP ASTRAL
+                case "MS:1003378":
+                    detectors = new List<CVParamType>
+                    {
+                        new CVParamType
+                        {
+                            accession = "MS:1000624",
+                            name = "inductive detector",
+                            cvRef = "MS",
+                            value = ""
+                        },
+                        new CVParamType
+                        {
+                            accession = "MS:1000108",
+                            name = "conversion dynode electron multiplier",
+                            cvRef = "MS",
+                            value = ""
+                        }
+                    };
+                    break;
                 // EXACTIVE
                 case "MS:1000649":
                 // EXACTIVE PLUS
@@ -830,8 +955,6 @@ namespace ThermoRawFileParser.Writer
                 case "MS:1003094":
                 // ORBITRAP EXPLORIS 480
                 case "MS:1003028":
-                // ORBITRAP ASTRAL
-                case "MS:1003378":
                     detectors = new List<CVParamType>
                     {
                         new CVParamType
@@ -847,6 +970,8 @@ namespace ThermoRawFileParser.Writer
                 case "MS:1000447":
                 // LTQ VELOS
                 case "MS:1000855":
+                //  VELOS PRO
+                case "MS:1003495":
                 // LTQ VELOS ETD
                 case "MS:1000856":
                 // LXQ    
@@ -857,12 +982,37 @@ namespace ThermoRawFileParser.Writer
                 case "MS:1000638":
                 // MALDI LTQ XL    
                 case "MS:1000642":
+                // TSQ QUANTUM ACCESS MAX
+                case "MS:1003498":
+                // TSQ QUANTUM XLS
+                case "MS:1003502":
+                // TSQ 8000
+                case "MS:1003503":
+                // ISQ LT
+                case "MS:1003500":
+                // ITQ
+                case "MS:1003501":
+                // THERMOQUEST VOYAGER
+                case "MS:1003554":
                     detectors = new List<CVParamType>
                     {
                         new CVParamType
                         {
                             accession = "MS:1000253",
                             name = "electron multiplier",
+                            cvRef = "MS",
+                            value = ""
+                        }
+                    };
+                    break;
+                // DELTAPLUS IRMS
+                case "MS:1003504":
+                    detectors = new List<CVParamType>
+                    {
+                        new CVParamType
+                        {
+                            accession = "MS:1000112",
+                            name = "faraday cup",
                             cvRef = "MS",
                             value = ""
                         }

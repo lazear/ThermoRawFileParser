@@ -10,17 +10,19 @@ using ThermoRawFileParser.Query;
 using ThermoRawFileParser.XIC;
 using System.Globalization;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.Data;
+using ThermoRawFileParser.Util;
+
+[assembly: log4net.Config.XmlConfigurator()]
 
 namespace ThermoRawFileParser
 {
     public static class MainClass
     {
         private static readonly ILog Log =
-            LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+            LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
-        public const string Version = "1.4.5";
+        public static string Version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
         public static void Main(string[] args)
         {
             // Set Invariant culture as default for all further processing
@@ -125,7 +127,7 @@ namespace ThermoRawFileParser
 
                 if (parameters.help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                     return;
                 }
@@ -253,12 +255,12 @@ namespace ThermoRawFileParser
             {
                 if (parameters.help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                 }
                 else
                 {
-                    ShowHelp("Error - usage is:", null,
+                    ShowHelp("Error - usage is:", new OptionException(),
                         optionSet);
                 }
             }
@@ -374,7 +376,7 @@ namespace ThermoRawFileParser
 
                 if (parameters.help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                     return;
                 }
@@ -416,12 +418,12 @@ namespace ThermoRawFileParser
             {
                 if (parameters.help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                 }
                 else
                 {
-                    ShowHelp("Error - usage is:", null,
+                    ShowHelp("Error - usage is:", new OptionException(),
                         optionSet);
                 }
             }
@@ -497,7 +499,7 @@ namespace ThermoRawFileParser
                     h => help = h != null
                 },
                 {
-                    "version", "Prints out the version of the executable.",
+                    "v|version", "Prints out the version of the executable.",
                     v => version = v != null
                 },
                 {
@@ -582,6 +584,10 @@ namespace ThermoRawFileParser
                 {
                     "N|noiseData", "Include noise data in mzML output",
                     v => parseInput.NoiseData = v != null
+                },
+                {
+                    "C|chargeData", "Include instrument detected charge states in mzML output (only for high resolution centroided data)",
+                    v => parseInput.ChargeData = v != null
                 },
                 {
                   "w|warningsAreErrors", "Return non-zero exit code for warnings; default only for errors",
@@ -766,6 +772,9 @@ namespace ThermoRawFileParser
                     if (parseInput.OutputFormat == OutputFormat.IndexMzML) parseInput.OutputFormat = OutputFormat.MzML;
                 }
 
+                // Switch off gzip compression for Parquet
+                if (parseInput.OutputFormat == OutputFormat.Parquet) parseInput.Gzip = false;
+
                 parseInput.MaxLevel = parseInput.MsLevel.Max();
 
                 if (parseInput.S3Url != null && parseInput.S3AccessKeyId != null &&
@@ -788,12 +797,12 @@ namespace ThermoRawFileParser
             {
                 if (help)
                 {
-                    ShowHelp("usage is:", null,
+                    ShowHelp("usage is:", new OptionException(),
                         optionSet);
                 }
                 else
                 {
-                    ShowHelp("Error - usage is:", null,
+                    ShowHelp("Error - usage is:", new OptionException(),
                         optionSet);
                 }
             }
@@ -933,62 +942,15 @@ namespace ThermoRawFileParser
 
         private static HashSet<int> ParseMsLevel(string inputString)
         {
-            HashSet<int> result = new HashSet<int>();
-            Regex valid = new Regex(@"^[\d,\-\s]+$");
-            Regex interval = new Regex(@"^\s*(\d+)?\s*(-)?\s*(\d+)?\s*$");
-
-            if (!valid.IsMatch(inputString))
-                throw new OptionException("Invalid characters in msLevel key", "msLevel");
-
-            foreach (var piece in inputString.Split(new char[] {','}))
+            try
             {
-                try
-                {
-                    int start;
-                    int end;
-
-                    var intervalMatch = interval.Match(piece);
-
-                    if (!intervalMatch.Success)
-                        throw new OptionException();
-
-                    if (intervalMatch.Groups[2].Success) //it is interval
-                    {
-                        if (intervalMatch.Groups[1].Success)
-                            start = Math.Max(1, int.Parse(intervalMatch.Groups[1].Value));
-                        else
-                            start = 1;
-
-                        if (intervalMatch.Groups[3].Success)
-                            end = Math.Min(10, int.Parse(intervalMatch.Groups[3].Value));
-                        else
-                            end = 10;
-                    }
-                    else
-                    {
-                        if (intervalMatch.Groups[1].Success)
-                            end = start = int.Parse(intervalMatch.Groups[1].Value);
-                        else
-                            throw new OptionException();
-
-                        if (intervalMatch.Groups[3].Success)
-                            throw new OptionException();
-                    }
-
-                    for (int l = start; l <= end; l++)
-                    {
-                        result.Add(l);
-                    }
-                }
-
-                catch (Exception ex)
-                {
-                    throw new OptionException(String.Format("Cannot parse part of msLevel input: '{0}'", piece),
-                        "msLevel", ex);
-                }
+                var levelIterator = new NumberIterator(inputString, 1, 10);
+                return new HashSet<int>(levelIterator.IterateScans());
             }
-
-            return result;
+            catch (Exception ex)
+            {
+                throw new OptionException($"Cannot parse MS level from {inputString} - {ex.Message}", "msLevel");
+            }
         }
     }
 }

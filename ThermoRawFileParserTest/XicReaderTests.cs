@@ -37,12 +37,12 @@ namespace ThermoRawFileParserTest
 
             XicReader.ReadXic(testRawFile, false, xicData, ref xicparams);
             XicUnit xicUnit = xicData.Content[0];
-            Assert.AreEqual(14, ((Array) xicUnit.RetentionTimes).Length);
-            Assert.AreEqual(14, ((Array) xicUnit.Intensities).Length);
-            Assert.AreEqual(140, xicUnit.Meta.MzStart.Value, 0.01);
-            Assert.AreEqual(2000, xicUnit.Meta.MzEnd.Value, 0.01);
-            Assert.AreEqual(0.004935, xicUnit.Meta.RtStart.Value, 0.01);
-            Assert.AreEqual(0.4872366666, xicUnit.Meta.RtEnd.Value, 0.01);
+            Assert.That(((Array)xicUnit.RetentionTimes).Length, Is.EqualTo(14));
+            Assert.That(((Array)xicUnit.Intensities).Length, Is.EqualTo(14));
+            Assert.That(Math.Abs(140 - xicUnit.Meta.MzStart.Value) < 0.01);
+            Assert.That(Math.Abs(2000 - xicUnit.Meta.MzEnd.Value) < 0.01);
+            Assert.That(Math.Abs(0.004935 - xicUnit.Meta.RtStart.Value) < 0.01);
+            Assert.That(Math.Abs(0.4872366666 - xicUnit.Meta.RtEnd.Value) < 0.01);
         }
 
         [Test]
@@ -71,12 +71,12 @@ namespace ThermoRawFileParserTest
 
             XicReader.ReadXic(testRawFile, false, xicData, ref xicparams);
             XicUnit xicUnit = xicData.Content[0];
-            Assert.AreEqual(46, ((Array) xicUnit.RetentionTimes).Length);
-            Assert.AreEqual(46, ((Array) xicUnit.Intensities).Length);
-            Assert.AreEqual(749.786, xicUnit.Meta.MzStart.Value, 0.01);
-            Assert.AreEqual(749.8093, xicUnit.Meta.MzEnd.Value, 0.01);
-            Assert.AreEqual(10, xicUnit.Meta.RtStart.Value, 0.01);
-            Assert.AreEqual(10.98, xicUnit.Meta.RtEnd.Value, 0.01);
+            Assert.That(((Array)xicUnit.RetentionTimes).Length, Is.EqualTo(46));
+            Assert.That(((Array)xicUnit.Intensities).Length, Is.EqualTo(46));
+            Assert.That(Math.Abs(749.786 - xicUnit.Meta.MzStart.Value) < 0.01);
+            Assert.That(Math.Abs(749.8093 - xicUnit.Meta.MzEnd.Value) < 0.01);
+            Assert.That(Math.Abs(10 - xicUnit.Meta.RtStart.Value) < 0.01);
+            Assert.That(Math.Abs(10.98 - xicUnit.Meta.RtEnd.Value) < 0.01);
             
             xicData = new XicData
             {
@@ -97,12 +97,12 @@ namespace ThermoRawFileParserTest
             };
             XicReader.ReadXic(testRawFile, false, xicData, ref xicparams);
             xicUnit = xicData.Content[0];
-            Assert.AreEqual(1, ((Array) xicUnit.RetentionTimes).Length);
-            Assert.AreEqual(1, ((Array) xicUnit.Intensities).Length);
-            Assert.AreEqual(749.786, xicUnit.Meta.MzStart.Value, 0.01);
-            Assert.AreEqual(749.8093, xicUnit.Meta.MzEnd.Value, 0.01);
-            Assert.AreEqual(300, xicUnit.Meta.RtStart.Value, 0.01);
-            Assert.AreEqual(400, xicUnit.Meta.RtEnd.Value, 0.01);
+            Assert.That(((Array)xicUnit.RetentionTimes).Length, Is.EqualTo(1));
+            Assert.That(((Array)xicUnit.Intensities).Length, Is.EqualTo(1));
+            Assert.That(Math.Abs(749.786 - xicUnit.Meta.MzStart.Value) < 0.01);
+            Assert.That(Math.Abs(749.8093 - xicUnit.Meta.MzEnd.Value) < 0.01);
+            Assert.That(Math.Abs(300 - xicUnit.Meta.RtStart.Value) < 0.01);
+            Assert.That(Math.Abs(400 - xicUnit.Meta.RtEnd.Value) < 0.01);
         }
 
         [Test]
@@ -142,7 +142,7 @@ namespace ThermoRawFileParserTest
 
             // test a valid json
             var errors = JSONParser.ValidateJson(json);
-            Assert.True(errors.IsNullOrEmpty());
+            Assert.That(errors.IsNullOrEmpty());
 
             json = @"[
         {
@@ -169,8 +169,8 @@ namespace ThermoRawFileParserTest
 
             // test a json with 2 missing properties
             errors = JSONParser.ValidateJson(json);
-            Assert.False(errors.IsNullOrEmpty());
-            Assert.AreEqual(2, errors.Count);
+            Assert.That(!errors.IsNullOrEmpty());
+            Assert.That(errors.Count, Is.EqualTo(2));
 
             json = @"[
         {
@@ -199,8 +199,8 @@ namespace ThermoRawFileParserTest
 
             // test a json with 2 negative numbers
             errors = JSONParser.ValidateJson(json);
-            Assert.False(errors.IsNullOrEmpty());
-            Assert.AreEqual(2, errors.Count);
+            Assert.That(!errors.IsNullOrEmpty());
+            Assert.That(errors.Count, Is.EqualTo(2));
         }
 
         [Test]
@@ -232,7 +232,7 @@ namespace ThermoRawFileParserTest
         ]";
 
             var xicData = JSONParser.ParseJSON(json);
-            Assert.NotNull(xicData);
+            Assert.That(xicData is not null);
 
             json = @"[
         {

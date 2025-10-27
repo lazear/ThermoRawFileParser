@@ -1,8 +1,11 @@
-﻿using System;
+﻿using log4net;
+using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Reflection;
-using log4net;
+using System.Text.RegularExpressions;
 using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.FilterEnums;
@@ -42,6 +45,17 @@ namespace ThermoRawFileParser.Writer
         /// </summary>
         private static LimitedSizeDictionary<int, MZArray> precursorCache;
 
+        // Precursor scan number (value) and isolation m/z (key) for reference in the precursor element of an MSn spectrum
+        private protected readonly Dictionary<string, int> _precursorScanNumbers = new Dictionary<string, int>();
+
+        //Precursor information for scans
+        private protected Dictionary<int, PrecursorInfo> _precursorTree = new Dictionary<int, PrecursorInfo>();
+
+        // Filter string regex to extract an isoaltion entry
+        private protected readonly Regex _filterStringIsolationMzPattern = new Regex(@"ms\d+ (.+?) \[");
+        // Filter string regex to extract an parent entry
+        private protected readonly Regex _filterStringParentMzPattern = new Regex(@"pr (.+?) \[");
+
         /// <summary>
         /// Constructor.
         /// </summary>
@@ -50,6 +64,8 @@ namespace ThermoRawFileParser.Writer
         {
             ParseInput = parseInput;
             precursorCache = new LimitedSizeDictionary<int, MZArray>(10);
+            _precursorScanNumbers[""] = -1;
+            _precursorTree[-1] = new PrecursorInfo();
         }
 
         /// <inheritdoc />
@@ -68,42 +84,27 @@ namespace ThermoRawFileParser.Writer
                 return;
             }
 
-            if (ParseInput.OutputFile == null)
+            var fileName = NormalizeFileName(ParseInput.OutputFile, extension, ParseInput.Gzip);
+            if (ParseInput.OutputFormat == OutputFormat.Parquet)
             {
-                var fullExtension = ParseInput.Gzip ? extension + ".gz" : extension;
-                if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
-                {
-                    Writer = File.CreateText(ParseInput.OutputDirectory + "//" +
-                                             ParseInput.RawFileNameWithoutExtension +
-                                             extension);
-                }
-                else
-                {
-                    var fileStream = File.Create(ParseInput.OutputDirectory + "//" +
-                                                 ParseInput.RawFileNameWithoutExtension + fullExtension);
-                    var compress = new GZipStream(fileStream, CompressionMode.Compress);
-                    Writer = new StreamWriter(compress);
-                }
+                Writer = new StreamWriter(File.Create(fileName));
+            }
+            else if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
+            {
+                Writer = File.CreateText(fileName);
             }
             else
             {
-                var fileName = NormalizeFileName(ParseInput.OutputFile, extension, ParseInput.Gzip);
-                if (!ParseInput.Gzip || ParseInput.OutputFormat == OutputFormat.IndexMzML)
-                {
-                    Writer = File.CreateText(fileName);
-                }
-                else
-                {
-                    var fileStream = File.Create(fileName);
-                    var compress = new GZipStream(fileStream, CompressionMode.Compress);
-                    Writer = new StreamWriter(compress);
-                }
+                var fileStream = File.Create(fileName);
+                var compress = new GZipStream(fileStream, CompressionMode.Compress);
+                Writer = new StreamWriter(compress);
             }
+
         }
 
         private string NormalizeFileName(string outputFile, string extension, bool gzip)
         {
-            string result = outputFile;
+            string result = outputFile == null ? Path.Combine(ParseInput.OutputDirectory, ParseInput.RawFileNameWithoutExtension) : outputFile;
             string tail = "";
 
             string[] extensions;
@@ -115,7 +116,7 @@ namespace ThermoRawFileParser.Writer
             result = result.TrimEnd('.');
 
             foreach (var ext in extensions)
-            {    
+            {
                 if (result.ToLower().EndsWith(ext.ToLower()))
                     result = result.Substring(0, result.Length - ext.Length);
 
@@ -190,8 +191,20 @@ namespace ThermoRawFileParser.Writer
             IReaction reaction = null;
             try
             {
-                var order = (int) scanEvent.MSOrder;
-                reaction = scanEvent.GetReaction(order - 2);
+                var order = (int)scanEvent.MSOrder;
+                if (order < 0)
+                {
+                    reaction = scanEvent.GetReaction(0);
+                }
+                else if (order > 1)
+                {
+                    reaction = scanEvent.GetReaction(order - 2);
+                }
+                else
+                {
+                    Log.Warn($"Attempting to get reaction for MS{order} scan# {scanNumber} failed");
+                }
+                    
             }
             catch (ArgumentOutOfRangeException)
             {
@@ -210,7 +223,7 @@ namespace ThermoRawFileParser.Writer
         /// <param name="precursorMass">the precursor mass</param>
         /// <param name="isolationWidth">the isolation width</param>
         /// <param name="useProfile">profile/centroid switch</param>
-        protected static double? CalculatePrecursorPeakIntensity(IRawDataPlus rawFile, int precursorScanNumber,
+        protected static double CalculatePrecursorPeakIntensity(IRawDataPlus rawFile, int precursorScanNumber,
             double precursorMass, double? isolationWidth, bool useProfile)
         {
             double precursorIntensity = 0;
@@ -244,12 +257,20 @@ namespace ThermoRawFileParser.Writer
                     else
                     {
                         var scanEvent = rawFile.GetScanEventForScanNumber(precursorScanNumber);
-                        var centroidedScan = scanEvent.ScanData == ScanDataType.Profile //only centroid profile spectra
-                            ? Scan.ToCentroid(scan).SegmentedScan
-                            : scan.SegmentedScan;
+                        if (scan.SegmentedScan.PositionCount > 0)
+                        {
+                            var centroidedScan = scanEvent.ScanData == ScanDataType.Profile //only centroid profile spectra
+                                ? Scan.ToCentroid(scan).SegmentedScan
+                                : scan.SegmentedScan;
 
-                        masses = centroidedScan.Positions;
-                        intensities = centroidedScan.Intensities;
+                            masses = centroidedScan.Positions;
+                            intensities = centroidedScan.Intensities;
+                        }
+                        else
+                        {
+                            masses = Array.Empty<double>();
+                            intensities = Array.Empty<double>();
+                        }
                     }
                 }
 
@@ -266,6 +287,169 @@ namespace ThermoRawFileParser.Writer
             }
 
             return precursorIntensity;
+        }
+
+        private protected int GetParentFromScanString(string scanString)
+        {
+            var parts = Regex.Split(scanString, " ");
+
+            //find the position of the first (from the end) precursor with a different mass 
+            //to account for possible supplementary activations written in the filter
+            var lastIonMass = parts.Last().Split('@').First();
+            int last = parts.Length;
+            while (last > 0 &&
+                   parts[last - 1].Split('@').First() == lastIonMass)
+            {
+                last--;
+            }
+
+            string parentFilter = String.Join(" ", parts.Take(last));
+            if (_precursorScanNumbers.ContainsKey(parentFilter))
+            {
+                return _precursorScanNumbers[parentFilter];
+            }
+
+            return -2; //unsuccessful parsing
+        }
+
+        private protected int FindLastReaction(IScanEvent scanEvent, int msLevel)
+        {
+            int lastReactionIndex = msLevel - 2;
+
+            //iteratively trying find the last available index for reaction
+            while (true)
+            {
+                try
+                {
+                    scanEvent.GetReaction(lastReactionIndex + 1);
+                }
+                catch (IndexOutOfRangeException)
+                {
+                    //stop trying
+                    break;
+                }
+
+                lastReactionIndex++;
+            }
+
+            //supplemental activation flag is on -> one of the levels (not necissirily the last one) used supplemental activation
+            //check last two activations
+            if (scanEvent.SupplementalActivation == TriState.On)
+            {
+                var lastActivation = scanEvent.GetReaction(lastReactionIndex).ActivationType;
+                var beforeLastActivation = scanEvent.GetReaction(lastReactionIndex - 1).ActivationType;
+
+                if ((beforeLastActivation == ActivationType.ElectronTransferDissociation || beforeLastActivation == ActivationType.ElectronCaptureDissociation) &&
+                    (lastActivation == ActivationType.CollisionInducedDissociation || lastActivation == ActivationType.HigherEnergyCollisionalDissociation))
+                    return lastReactionIndex - 1; //ETD or ECD followed by HCD or CID -> supplemental activation in the last level (move the last reaction one step back)
+                else
+                    return lastReactionIndex;
+            }
+            else //just use the last one
+            {
+                return lastReactionIndex;
+            }
+        }
+
+        private protected MZData ReadMZData(IRawData rawFile, IScanEvent scanEvent, int scanNumber, bool centroid, bool charge, bool noiseData)
+        {
+            double[] raw_masses;// copy of original (unsorted) masses
+
+            MZData mzData = new MZData();
+
+            var scan = Scan.FromFile(rawFile, scanNumber);
+
+            //If centroiding is requested
+            if (centroid)
+            {
+                mzData.isCentroided = true; // flag that the data is centroided
+                // Check if the scan has a centroid stream
+                if (scan.HasCentroidStream)
+                {
+                    mzData.basePeakMass = scan.CentroidScan.BasePeakMass;
+                    mzData.basePeakIntensity = scan.CentroidScan.BasePeakIntensity;
+
+                    mzData.masses = scan.CentroidScan.Masses;
+                    raw_masses = scan.CentroidScan.Masses;
+                    mzData.intensities = scan.CentroidScan.Intensities;
+
+                    if (charge)
+                    {
+                        mzData.charges = scan.CentroidScan.Charges;
+                    }
+                }
+                else // otherwise take the segmented (low res) scan
+                {
+                    mzData.basePeakMass = scan.ScanStatistics.BasePeakMass;
+                    mzData.basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
+
+                    //cannot centroid empty segmented scan
+                    if (scan.SegmentedScan.PositionCount > 0)
+                    {
+                        // If the spectrum is profile perform centroiding
+                        var segmentedScan = scanEvent.ScanData == ScanDataType.Profile
+                            ? Scan.ToCentroid(scan).SegmentedScan
+                            : scan.SegmentedScan;
+
+                        mzData.masses = segmentedScan.Positions;
+                        raw_masses = segmentedScan.Positions;
+                        mzData.intensities = segmentedScan.Intensities;
+                    }
+                    else
+                    {
+                        mzData.masses = Array.Empty<double>();
+                        mzData.intensities = Array.Empty<double>();
+                        raw_masses = Array.Empty<double>();
+                    }
+                }
+            }
+            else // use the segmented data as is
+            {
+                switch (scanEvent.ScanData) //check if the data centroided already
+                {
+                    case ScanDataType.Centroid:
+                        mzData.isCentroided = true;
+                        break;
+                    case ScanDataType.Profile:
+                        mzData.isCentroided = false;
+                        break;
+                }
+
+                mzData.basePeakMass = scan.ScanStatistics.BasePeakMass;
+                mzData.basePeakIntensity = scan.ScanStatistics.BasePeakIntensity;
+
+                mzData.masses = scan.SegmentedScan.Positions;
+                raw_masses = scan.SegmentedScan.Positions;
+                mzData.intensities = scan.SegmentedScan.Intensities;
+            }
+
+            // Sort all arrays by m/z
+            if (raw_masses != null)
+            {
+                if (mzData.masses != null)
+                {
+                    Array.Sort((double[])raw_masses.Clone(), mzData.masses);
+
+                }
+                if (mzData.intensities != null)
+                {
+                    Array.Sort((double[])raw_masses.Clone(), mzData.intensities);
+                }
+                if (charge && mzData.charges != null)
+                {
+                    Array.Sort((double[])raw_masses.Clone(), mzData.charges);
+                }
+
+            }
+            // If requested, read the noise data
+            if (noiseData)
+            {
+                mzData.baselineData = scan.PreferredBaselines;
+                mzData.noiseData = scan.PreferredNoises;
+                mzData.massData = scan.PreferredMasses;
+            }
+
+            return mzData;
         }
     }
 }

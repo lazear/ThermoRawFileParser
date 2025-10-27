@@ -1,7 +1,9 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using log4net;
 using ThermoFisher.CommonCore.Data;
 using ThermoFisher.CommonCore.Data.Business;
 using ThermoFisher.CommonCore.Data.Interfaces;
@@ -12,8 +14,8 @@ namespace ThermoRawFileParser
 {
     public static class RawFileParser
     {
-        private static readonly log4net.ILog Log =
-            log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly ILog Log =
+            LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
         /// <summary>
         /// Process and extract the RAW file(s). 
@@ -119,13 +121,13 @@ namespace ThermoRawFileParser
             {
                 if (!rawFile.IsOpen)
                 {
-                    throw new RawFileParserException("Unable to access the RAW file using the native Thermo library.");
+                    throw new RawFileParserException("Unable to access the RAW file using the native Thermo API");
                 }
 
                 // Check for any errors in the RAW file
                 if (rawFile.IsError)
                 {
-                    throw new RawFileParserException($"RAW file cannot be processed because of an error - {rawFile.FileError}");
+                    throw new RawFileParserException($"Native Thermo API reported the following error - RAW file is likely corrupted\n{rawFile.FileError.ErrorMessage}");
                 }
 
                 // Check if the RAW file is being acquired
