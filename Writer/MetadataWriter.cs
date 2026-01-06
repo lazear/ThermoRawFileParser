@@ -174,10 +174,10 @@ namespace ThermoRawFileParser.Writer
                     metadata.addMSData(new CVTerm("PRIDE:0000481", "PRIDE", "Number of MS1 spectra",
                         msLevels[MSOrderType.Ms].ToString()));
                 if (msLevels[MSOrderType.Ms2] > 0)
-                    metadata.addMSData(new CVTerm("PRIDE:0000482", "PRIDE", "Number of MS1 spectra",
+                    metadata.addMSData(new CVTerm("PRIDE:0000482", "PRIDE", "Number of MS2 spectra",
                         msLevels[MSOrderType.Ms2].ToString()));
                 if (msLevels[MSOrderType.Ms3] > 0)
-                    metadata.addMSData(new CVTerm("PRIDE:0000483", "PRIDE", "Number of MS1 spectra",
+                    metadata.addMSData(new CVTerm("PRIDE:0000483", "PRIDE", "Number of MS3 spectra",
                         msLevels[MSOrderType.Ms3].ToString()));
                 
                 metadata.addMSData(new CVTerm("PRIDE:0000472", "PRIDE", "MS min charge",
