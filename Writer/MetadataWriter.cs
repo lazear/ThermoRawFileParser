@@ -47,6 +47,9 @@ namespace ThermoRawFileParser.Writer
         {
             if(rawFile.SelectMsData())
             {
+                // Get MS levels
+                msLevels = WriterUtil.CountScanOrder(rawFile);
+
                 for (var scanNumber = firstScanNumber; scanNumber <= lastScanNumber; scanNumber++)
                 {
                     var time = rawFile.RetentionTimeFromScanNumber(scanNumber);
@@ -57,9 +60,6 @@ namespace ThermoRawFileParser.Writer
                     // Get the scan event for this scan number
                     var scanEvent = rawFile.GetScanEventForScanNumber(scanNumber);
 
-                    // Get MS levels
-                    msLevels = WriterUtil.CountScanOrder(rawFile);
-                    
                     if (time > maxTime)
                         maxTime = time;
                     if (time < minTime)
