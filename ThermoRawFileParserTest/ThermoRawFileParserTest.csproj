@@ -6,8 +6,8 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>annotations</Nullable>
     <StartupObject></StartupObject>
-    <PlatformTarget>x64</PlatformTarget>
-    <Platforms>x64</Platforms>
+    <PlatformTarget>arm64</PlatformTarget>
+    <Platforms>arm64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
